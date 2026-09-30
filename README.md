@@ -1,4 +1,4 @@
-# MTB Survey for Garmin Epix Gen 2
+# MTB Survey for Garmin watches
 
 MTB Survey maps how difficult trails are while you ride them. You set the difficulty with the watch
 buttons, and at the same time the watch measures shaking and steering movements. Afterwards the ride
@@ -29,14 +29,18 @@ watch ──FIT file──▶ fitmap.py ──▶ map (HTML) and GeoJSON ──�
 
 | For | You need |
 |---|---|
-| The watch app | Garmin Epix Gen 2 and [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) 9.2 or later, with your own developer key |
+| The watch app | A Garmin watch with a gyroscope and UP/DOWN buttons, see [supported watches](docs/devices.md), and [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) 9.2 or later, with your own developer key |
 | The analysis tools | Python 3.9 or later. No packages needed. |
 | The map | A web browser with internet access, for the map tiles |
 | Trail segments | Internet access the first time, for the OpenStreetMap Overpass API. The response is then cached locally. |
 | The tests of OSM writing | Node 18 or later |
 
-The app is only built and tested for the Epix Gen 2 (`epix2`). Other watches with a gyroscope and
-API level 3.3 should work if they are added to `manifest.xml`, but this has not been tested.
+The app is developed and ridden on the Epix Gen 2, but it is not limited to it. According to Garmin's
+device definitions, 50 devices support everything, including fēnix 7, 8 and 9, Forerunner 255, 265, 570,
+955, 965 and 970, Enduro 3, Instinct 3 AMOLED, MARQ Gen 2 and the Edge 540, 550, 840 and 850 bike
+computers. Another 8 lack a gyroscope and can record but not run the automatic assessment. Only the
+Epix Gen 2 has been used on real rides. See [docs/devices.md](docs/devices.md) for the full list and for
+how to check your own watch.
 
 ## Install on the watch
 
@@ -57,6 +61,7 @@ is the easiest way.
    make build
    ```
    This runs `monkeyc -f monkey.jungle -d epix2 -o bin/mtbsurveyepixgen2.prg -y developer_key -r`.
+   For another watch, give its device id: `make build DEVICE=fenix7`.
    If the SDK is not in your `PATH`, give the path: `make build MONKEYC="/path/to/sdk/bin/monkeyc"`.
    In VS Code you can also use *Monkey C: Build for Device* and choose epix (Gen 2).
 
@@ -174,6 +179,8 @@ followed by one row per trail in OpenStreetMap:
 |---|---|
 | [docs/map-page.md](docs/map-page.md) | The map, the trail segments, the comparison with OSM and writing to OSM |
 | [docs/assessment.md](docs/assessment.md) | How the automatic assessment works, how it was calibrated and how accurate it is |
+| [docs/research.md](docs/research.md) | How the model was found, what was learned, and what data is needed to continue. **Start here if you want to improve the assessment.** |
+| [docs/devices.md](docs/devices.md) | Which watches the app supports, and how to check your own |
 | [docs/fit-fields.md](docs/fit-fields.md) | The fields the app writes to the FIT file, and how to read them |
 | [docs/implementation.md](docs/implementation.md) | How the watch app works inside |
 | [docs/verification.md](docs/verification.md) | What has been tested on the watch, in the simulator and with tests |
@@ -188,6 +195,7 @@ source/                       the watch app (Monkey C)
 test/                         unit tests for the sensor calculation (Monkey C)
 resources/                    the app's name and icon
 tools/
+  devicecheck.py              which watches can run the app, from the SDK's device definitions
   fitdump.py                  FIT decoder without dependencies
   fitmap.py                   map, elevation profile and web host folder
   trailanalysis.py            automatic assessment; the limits are at the top
@@ -219,7 +227,8 @@ The example map and the screenshots in `docs/` show part of a real ride, with th
 - Garmin Connect does not show developer fields from sideloaded apps. The values are still in the FIT file.
 - BACK saves and exits immediately, without confirmation.
 - The automatic assessment is calibrated against a single manually assessed ride. It has not been tested
-  with other riders, bikes or trail types.
+  with other riders, bikes or trail types. More labelled rides are needed,
+  see [docs/research.md](docs/research.md).
 - With the watch on the wrist, the limit between road and trail is preliminary and does not hold every day.
 
 ## License

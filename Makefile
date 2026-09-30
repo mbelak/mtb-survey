@@ -22,4 +22,5 @@ test-watch: build-test ## run the unit tests in the simulator (start the simulat
 test:                  ## Python and Node tests for the analysis tools
 	python3 tools/test_trailanalysis.py
 	python3 tools/test_trailsegments.py
+	python3 tools/test_devicecheck.py
 	node tools/test_osmedit.js

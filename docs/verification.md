@@ -19,6 +19,8 @@ Three rides with version 0.3, 7 to 13 km long, decoded with `tools/fitdump.py`:
 
 ## Build and unit tests
 
+- The app compiles for all 67 devices in the Connect IQ SDK 9.2.0 device list, and the store package builds
+  for the 58 devices in `manifest.xml`. Only the Epix Gen 2 has been used on real rides. See [devices.md](devices.md).
 - The app and the test variant build for `epix2` with `monkeyc` without errors.
   The only warning is that the launcher icon is 40x40 and is scaled to 60x60.
 - The unit tests for `motionMetrics()` pass (4 of 4): a still watch, shaking with known RMS and peak,

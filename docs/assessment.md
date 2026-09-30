@@ -1,5 +1,8 @@
 # Automatic assessment
 
+> The limits come from a single hand-labelled ride. How they were found, what was tried and what data is
+> needed to improve them is described in [research.md](research.md).
+
 The analysis gives each 25 m section a level based on the watch sensors and the speed. It estimates the
 same scale as the buttons: 0 = gravel road or asphalt, 1 = child-friendly trail, 2 = trail that is not child-friendly.
 
@@ -55,7 +58,7 @@ ride on 2026-09-30, where the same loop was ridden once with the watch on the wr
 The day's road speed is the median of the grade-adjusted speed on the 35 % calmest sections, that is
 the ones with the least steering, computed within each mode. If the ride has too little calm distance, 15 km/h is used.
 You slow down on hard trails, and the speed relative to the day's road speed copes with the pace varying between days.
-Absolute speed does not: a calm ride got 52 % hard with a fixed speed limit.
+Absolute speed does not: a calm ride got 52 % hard with a fixed limit of 10.9 km/h, against 13 % with the relative limit.
 
 The limits are in `MOUNT_LIMITS` and `SPEED_EXP` at the top of `tools/trailanalysis.py`.
 `roughness` is shown but does not affect the level. It did not separate 1 from 2, and rough gravel roads were
@@ -84,12 +87,19 @@ where 0.50 means no difference and 1.00 means perfect separation.
 from one ride is used on another. The check was a calm ride with only easy trails and a road speed of
 11.6 km/h, against 15 to 17 km/h on the other days.
 
+Same method for every reference: speed alone, grade-adjusted, with the limit set so that ride A gets
+its own share of level 2. Lower is better, since the calm ride had no hard trails.
+
 | Speed reference | Share hard on the calm ride |
 |---|---|
-| Absolute speed | 52 % |
-| Median speed of the whole ride | 18 % |
-| Moving 20 minutes | 15 % |
-| The day's road speed, grade-adjusted (chosen) | 13 % |
+| Absolute speed | 32 % |
+| Median speed of the whole ride | 19 % |
+| 80th percentile of the ride's speed | 13 % |
+| The day's road speed (chosen) | 10 % |
+
+With the limits actually fitted for the rule, a fixed 10.9 km/h called 52 % of the calm ride hard,
+against 13 % for 0.62 of the road speed. A sliding 20 minute window was only tested together with
+steering, where it called 15 % hard, against 0 to 7 % for the road speed in the same setup.
 
 The median speed of the whole ride and moving windows are affected by how much trail the ride contains.
 A 5-minute window also made the separation between road and trail worse.

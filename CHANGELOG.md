@@ -15,6 +15,9 @@ Project:
 - The documentation is split into the README and `docs/`. A Makefile with `build`, `package` and `test`, and GitHub Actions for the tests.
 - Screenshots of the watch and the map, and an example map in `docs/example/`.
 - MIT license.
+- Research notes in `docs/research.md`: how the model was found, ideas for a better algorithm, and what data is needed.
+- 58 devices in `manifest.xml` instead of only the Epix Gen 2, after checking Garmin's device definitions.
+  `tools/devicecheck.py` checks which watches can run the app. See `docs/devices.md`.
 
 ## 0.3
 
