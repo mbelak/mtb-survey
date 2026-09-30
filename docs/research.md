@@ -15,6 +15,11 @@ mountain biking, you can probably improve it. See [Contributing to the algorithm
 
 ## The goal
 
+The long-term aim is that riders just ride, and their trails are inventoried and mapped in
+OpenStreetMap with a difficulty, so that routes can later be planned by difficulty. A person still
+reviews each value before it is written, as OpenStreetMap's rules for automated edits require.
+The step this document is about is the one in between:
+
 Estimate, for every 25 m of a ride, how difficult the trail is, from what the watch records:
 GPS, elevation, speed and the three motion values `roughness`, `jolt` and `steer`
 (see [fit-fields.md](fit-fields.md)). The output should help decide `mtb:scale` for trails in

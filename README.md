@@ -25,6 +25,21 @@ watch ──FIT file──▶ fitmap.py ──▶ map (HTML) and GeoJSON ──�
                         └─ trailsegments.py   trails between junctions, from OpenStreetMap
 ```
 
+## The vision
+
+The ultimate idea is that you just ride your trails, as usual. The watch records how the ride feels,
+and the trails are inventoried automatically: every trail you ride gets a difficulty, and the result
+ends up in OpenStreetMap. Once the trails in an area are mapped, anyone can plan new routes by
+difficulty, for example a loop with only child-friendly trails, or one that avoids the steepest parts.
+
+The project is not there yet. Today you still set the difficulty with the buttons, the automatic
+assessment is calibrated on a single ride, and a person reviews every value before it is written to
+OpenStreetMap. That review should stay: OpenStreetMap's
+[Automated Edits code of conduct](https://wiki.openstreetmap.org/wiki/Automated_Edits_code_of_conduct)
+does not allow automatic tagging without human review and prior discussion with the community.
+The road there goes through more labelled rides and a better algorithm, see
+[docs/research.md](docs/research.md).
+
 ## Requirements
 
 | For | You need |
