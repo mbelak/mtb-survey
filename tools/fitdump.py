@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Minimal FIT-avkodare (endast stdlib). Skriver ut varje record-meddelande
-med timestamp, lat/lon och alla developer fields (t.ex. mtb_scale)."""
+"""Minimal FIT decoder (stdlib only). Prints every record message
+with timestamp, lat/lon and all developer fields (e.g. mtb_scale)."""
 import struct, sys
 
 BASE = {0x00:('B',1),0x01:('b',1),0x02:('B',1),0x83:('h',2),0x84:('H',2),0x85:('i',4),
@@ -22,7 +22,7 @@ def parse(path):
     d = open(path, 'rb').read()
     hsize = d[0]
     dsize = struct.unpack('<I', d[4:8])[0]
-    assert d[8:12] == b'.FIT', 'inte en FIT-fil'
+    assert d[8:12] == b'.FIT', 'not a FIT file'
     pos, end = hsize, hsize + dsize
     defs, devfields, out = {}, {}, []
     last_ts = 0
@@ -66,10 +66,10 @@ def parse(path):
             ts = msg.get(253, comp_ts)
             lat = msg.get(0); lon = msg.get(1)
             sc = 180.0 / 2**31
-            alt = msg.get(78)                   # enhanced_altitude, annars altitude
+            alt = msg.get(78)                   # enhanced_altitude, otherwise altitude
             if alt is None: alt = msg.get(2)
             dist = msg.get(5)
-            spd = msg.get(73)                   # enhanced_speed, annars speed (mm/s)
+            spd = msg.get(73)                   # enhanced_speed, otherwise speed (mm/s)
             if spd is None: spd = msg.get(6)
             out.append(('record', {'ts': ts, 'speed': None if spd is None else spd / 1000,
                         'hr': msg.get(3), 'cad': msg.get(4),
@@ -77,7 +77,7 @@ def parse(path):
                         'lon': None if lon is None else round(lon * sc, 6),
                         'alt': None if alt is None else round(alt / 5 - 500, 1),
                         'dist': None if dist is None else dist / 100}, devvals))
-        elif gnum == 23:                    # device_info: anslutna sensorer, t.ex. pulsband (typ 120)
+        elif gnum == 23:                    # device_info: connected sensors, e.g. heart rate chest strap (type 120)
             out.append(('device_info', {'device_type': msg.get(1), 'source_type': msg.get(25),
                                         'manufacturer': msg.get(2), 'product': msg.get(4)}, {}))
         elif gnum == 21:                    # event

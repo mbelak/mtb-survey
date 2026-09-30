@@ -1,90 +1,91 @@
 #!/usr/bin/env python3
-"""Automatisk bedömning av hur barnvänlig en stig är, från en FIT-fil.
+"""Automatic assessment of how child-friendly a trail is, from a FIT file.
 
-Spåret delas i sektioner om SECTION_M meter. Varje sektion får mätvärden och
-en nivå: 0 = lätt, 1 = kräver vana, 2 = svårt för barn, med skälen i klartext.
+The track is split into sections of SECTION_M meters. Each section gets metrics and
+a level: 0 = easy, 1 = needs experience, 2 = hard for kids, with the reasons in plain text.
 
-Mätvärden (alla valfria utom position/höjd):
-  lutning      max |lutning| i sektionen (från fitmap.build_profile)
-  lång backe   sektionen ligger i en sammanhängande stigning (long_climbs)
-  fart         median av records-farten, km/h
-  ryckighet    variationskoefficient för farten (std / medel)
-  stopp        sekunder under 2 km/h
-  kurvighet    summa riktningsändring, grader per 100 m
-  roughness    skakningar från klockans accelerometer (appen v0.3), mG RMS (visas, styr inte nivån)
-  steer        styrkorrigeringar från klockans gyroskop (appen v0.3), grader/s RMS
-  v_rel        fart relativt dagens vägfart, lutningsjusterad
-  mount        'arm' eller 'styre', var klockan satt
-  kadens       från kadenssensor, om ansluten
+Metrics (all optional except position/altitude):
+  grade        max |grade| in the section (from fitmap.build_profile)
+  long climb   the section lies within a continuous climb (long_climbs)
+  speed        median of the record speeds, km/h
+  unevenness   coefficient of variation of the speed (std / mean)
+  stops        seconds below 2 km/h
+  twistiness   sum of heading changes, degrees per 100 m
+  roughness    shake from the watch accelerometer (app v0.3), mG RMS (shown, does not set the level)
+  steer        steering corrections from the watch gyroscope (app v0.3), degrees/s RMS
+  v_rel        speed relative to the day's road speed, grade-adjusted
+  mount        'wrist' or 'handlebar', where the watch was mounted
+  cadence      from a cadence sensor, if connected
 
-Gränsvärdena nedan är kalibrerade mot en runda (se LIMITS). Jämför med
-tabellen "Mätvärden per mtb:scale" i kartan och justera dem efter fler turer.
+The limits below are calibrated against one loop (see LIMITS). Compare with
+the "Metrics per mtb:scale" table on the map page and adjust them after more rides.
 
-Användning:  python3 tools/trailanalysis.py aktivitet.fit [--mount arm|styre]
+Usage:  python3 tools/trailanalysis.py activity.fit [--mount wrist|handlebar]
 
-Utan --mount avgörs läget per sektion: puls utan pulsband = armen, annars styret.
+Without --mount the mount is decided per section: heart rate without a chest strap = wrist, otherwise handlebar.
 """
 import math, os, statistics, sys
 from bisect import bisect_left, bisect_right
 
 SECTION_M = 25
 
-# Långa backar: sammanhängande stigning där dippar under DIP_M inte bryter
+# Long climbs: continuous climb where dips smaller than DIP_M do not break it
 LONG_DIP_M = 2.0
 LONG_MIN_GAIN_M = 12
 LONG_MIN_LEN_M = 150
 
-# Gränser per nivå: (kräver vana, svårt för barn). None = används inte.
-# Skalan: 0 = grusväg eller asfalt, 1 = barnvänlig stig, 2 = stig som inte är barnvänlig.
-# Lutning, långa backar och stopp säger inget om underlaget och är avstängda;
-# slå på dem igen vid behov. Styrning och fart hanteras per läge i MOUNT_LIMITS.
+# Limits per level: (needs experience, hard for kids). None = not used.
+# The scale: 0 = gravel road or asphalt, 1 = child-friendly trail, 2 = trail that is not child-friendly.
+# Grade, long climbs and stops say nothing about the surface and are turned off;
+# turn them back on if needed. Steering and speed are handled per mount in MOUNT_LIMITS.
 LIMITS = {
-    'grade':     (None, 14.0),    # max |lutning| %
-    'climb':     (None, None),    # höjdmeter i den långa backe sektionen ligger i
-    'walk_kmh':  (None, None),    # medianfart under detta i uppförsbacke = troligen ledde cykeln
-    'cv':        (None, None),    # ryckig fart
-    'stop_s':    (None, None),    # sekunder stillastående
-    'curv':      (120.0, 220.0),  # grader per 100 m
+    'grade':     (None, 14.0),    # max |grade| %
+    'climb':     (None, None),    # elevation gain of the long climb the section lies in
+    'walk_kmh':  (None, None),    # median speed below this uphill = probably walking the bike
+    'cv':        (None, None),    # uneven speed
+    'stop_s':    (None, None),    # seconds standing still
+    'curv':      (120.0, 220.0),  # degrees per 100 m
 }
 
-# Var klockan satt. Kalibrerat 2026-09-30 mot handbedömningen från turen 2026-09-25 (styre),
-# överförd via plats till turen 2026-09-30 (samma loop, en gång på armen och en på styret).
-#   trail_steer  steer (°/s) från vilken sektionen räknas som stig (nivå 1)
-#   hard_score   styret: svår (2) om steer * (v_rel ** -SPEED_EXP) >= hard_score.
-#                Låg fart relativt dagens vägfart förstärker alltså styrvärdet.
-#   v_rel_hard   armen: svår (2) om farten är högst så här stor andel av vägfarten.
-#                Armens styrning och skak skiljer inte lätt stig från svår.
-# Styret: balanserad träff 0,71 (tre nivåer) på en annan dag än kalibreringen, mot 0,53
-# med de tidigare gränserna. Roughness används inte: den skilde inte 1 från 2 och gav
-# falska stigar på skakiga grusvägar. Armens stiggräns är preliminär (en tur).
+# Where the watch was mounted. Calibrated 2026-09-30 against the manual assessment from the ride
+# 2026-09-25 (handlebar), transferred by location to the ride 2026-09-30 (same loop, once on the
+# wrist and once on the handlebar).
+#   trail_steer  steer (deg/s) from which the section counts as trail (level 1)
+#   hard_score   handlebar: hard (2) if steer * (v_rel ** -SPEED_EXP) >= hard_score.
+#                Low speed relative to the day's road speed thus amplifies the steering value.
+#   v_rel_hard   wrist: hard (2) if the speed is at most this share of the road speed.
+#                Steering and shake on the wrist do not separate an easy trail from a hard one.
+# Handlebar: balanced accuracy 0.71 (three levels) on a different day than the calibration, vs 0.53
+# with the earlier limits. Roughness is not used: it did not separate 1 from 2 and gave
+# false trails on bumpy gravel roads. The wrist trail limit is preliminary (one ride).
 SPEED_EXP = 0.66
 MOUNT_LIMITS = {
-    'styre': {'trail_steer': 24.0, 'hard_score': 47.0, 'v_rel_hard': None},
-    'arm':   {'trail_steer': 59.0, 'hard_score': None, 'v_rel_hard': 0.62},
+    'handlebar': {'trail_steer': 24.0, 'hard_score': 47.0, 'v_rel_hard': None},
+    'wrist':     {'trail_steer': 59.0, 'hard_score': None, 'v_rel_hard': 0.62},
 }
 MOUNTS = tuple(MOUNT_LIMITS)
 
-# Dagens vägfart: median av lutningsjusterad fart på de ROAD_Q lugnaste sektionerna
-# (lägst steer, räknat inom varje läge). Fart relativt den tål att tempot varierar
-# mellan dagar, vilket absolut fart inte gör.
+# The day's road speed: median of the grade-adjusted speed on the ROAD_Q calmest sections
+# (lowest steer, counted within each mount). Speed relative to it tolerates the pace varying
+# between days, which absolute speed does not.
 ROAD_Q = 0.35
-GRADE_K = -0.036                  # fart ~ exp(GRADE_K * lutning %), anpassad på väg
+GRADE_K = -0.036                  # speed ~ exp(GRADE_K * grade %), fitted on road
 MIN_ROAD_SECS = 4
-V_ROAD_DEFAULT = 15.0             # km/h, om passet har för lite lugn sträcka
-HR_STRAP = 120                    # FIT antplus_device_type för pulsband
-MOUNT_MIN_S = 60                  # kortare pulsavbrott eller pulsglimtar ändrar inte läget
-# Sensorvärden och fart jämnas ut med en glidande median över så här många
-# sektioner innan nivån sätts. 5 sektioner = 125 m. Utan utjämning är
-# värdena för brusiga på 25 m.
+V_ROAD_DEFAULT = 15.0             # km/h, if the ride has too little calm distance
+HR_STRAP = 120                    # FIT antplus_device_type for a heart rate chest strap
+MOUNT_MIN_S = 60                  # shorter heart rate dropouts or brief heart rate readings do not change the mount
+# Sensor values and speed are smoothed with a moving median over this many
+# sections before the level is set. 5 sections = 125 m. Without smoothing the
+# values are too noisy over 25 m.
 SMOOTH_N = 5
-LEVELS = ['lätt', 'kräver vana', 'svårt för barn']
-# Kurvighet är grov (GPS-brus) och räknas inte in i nivån som standard.
-# Kartsidan kan slå på den; både nivåer med och utan räknas ut.
+LEVELS = ['easy', 'needs experience', 'hard for kids']
+# Twistiness is coarse (GPS noise) and is not counted in the level by default.
+# The map page can turn it on; levels both with and without it are computed.
 USE_CURV = False
 
 
 def long_climbs(prof):
-    """Sammanhängande stigningar. prof-punkt: [d, alt, ...]."""
+    """Continuous climbs. prof point: [d, alt, ...]."""
     out, s, p = [], 0, 0
 
     def close(s, p):
@@ -120,18 +121,18 @@ def _mean(v):
 
 
 def has_hr_strap(rows):
-    """Var ett pulsband anslutet? Då kommer pulsen därifrån och säger inget om klockan."""
+    """Was a heart rate chest strap connected? Then the heart rate comes from it and says nothing about the watch."""
     return any(k == 'device_info' and m.get('device_type') == HR_STRAP for k, m, dev in rows)
 
 
 def record_mounts(rows, force=None):
-    """[(ts, 'arm'|'styre')] per record. Puls utan pulsband = klockan på handleden,
-    eftersom den optiska pulsmätaren inte når någon hud på styret. Partier kortare
-    än MOUNT_MIN_S slås ihop med grannarna, så enstaka avbrott inte byter läge."""
+    """[(ts, 'wrist'|'handlebar')] per record. Heart rate without a chest strap = watch on the wrist,
+    since the optical heart rate sensor touches no skin on the handlebar. Runs shorter
+    than MOUNT_MIN_S are merged with their neighbors, so single dropouts do not change the mount."""
     recs = [(m['ts'], bool(m.get('hr'))) for k, m, dev in rows if k == 'record' and m.get('ts') is not None]
     if force or not recs or has_hr_strap(rows):
-        return [(ts, force or 'styre') for ts, _ in recs]
-    runs = []                                   # [flagga, första index, sista index]
+        return [(ts, force or 'handlebar') for ts, _ in recs]
+    runs = []                                   # [flag, first index, last index]
     for i, (_, f) in enumerate(recs):
         if runs and runs[-1][0] == f:
             runs[-1][2] = i
@@ -154,7 +155,7 @@ def record_mounts(rows, force=None):
         runs = merged
     out = []
     for f, a, b in runs:
-        out += [(recs[i][0], 'arm' if f else 'styre') for i in range(a, b + 1)]
+        out += [(recs[i][0], 'wrist' if f else 'handlebar') for i in range(a, b + 1)]
     return out
 
 
@@ -170,10 +171,10 @@ def _quantile(v, q):
 
 
 def road_speed(secs):
-    """Dagens vägfart i km/h: median av lutningsjusterad fart på de lugnaste sektionerna."""
+    """The day's road speed in km/h: median of the grade-adjusted speed on the calmest sections."""
     road = []
     for mount in MOUNTS:
-        ss = [s for s in secs if s.get('mount', 'styre') == mount and s.get('steer') is not None
+        ss = [s for s in secs if s.get('mount', 'handlebar') == mount and s.get('steer') is not None
               and s.get('speed') and s['speed'] > 2]
         if not ss:
             continue
@@ -183,12 +184,12 @@ def road_speed(secs):
 
 
 def sections(prof, rows, climbs, mount=None):
-    """Delar profilen i sektioner och räknar mätvärden per sektion."""
+    """Splits the profile into sections and computes metrics per section."""
     recs = sorted((m['ts'], m.get('speed'), dev.get('roughness'), dev.get('steer'), m.get('cad'))
                   for k, m, dev in rows if k == 'record' and m.get('ts') is not None)
     rts = [r[0] for r in recs]
     mounts = dict(record_mounts(rows, force=mount))
-    # riktning över 20 m-korda, för kurvighet (kortare korda ger mest GPS-brus)
+    # heading over a 20 m chord, for twistiness (a shorter chord gives mostly GPS noise)
     head = [_heading((prof[i][3], prof[i][4]), (prof[i + 4][3], prof[i + 4][4]))
             for i in range(len(prof) - 4)]
     turn = [0.0] + [abs((head[i] - head[i - 1] + 180) % 360 - 180) for i in range(1, len(head))]
@@ -207,7 +208,7 @@ def sections(prof, rows, climbs, mount=None):
         scales = [p[5] for p in part if p[5] is not None]
         ms = [mounts[r[0]] for r in rs if r[0] in mounts]
         sec = {
-            'mount': max(set(ms), key=ms.count) if ms else (out[-1]['mount'] if out else (mount or 'styre')),
+            'mount': max(set(ms), key=ms.count) if ms else (out[-1]['mount'] if out else (mount or 'handlebar')),
             'i': len(out), 'start_d': part[0][0], 'length_m': length,
             'coords': [[p[3], p[4]] for p in part],
             'grade': max(abs(p[2]) for p in part),
@@ -241,7 +242,7 @@ def sections(prof, rows, climbs, mount=None):
 
 
 def smooth(secs, n=None, keys=('roughness', 'steer', 'speed')):
-    """Glidande median över n sektioner, på plats. Råvärdet sparas som <key>_raw."""
+    """Moving median over n sections, in place. The raw value is kept as <key>_raw."""
     n = SMOOTH_N if n is None else n
     if n <= 1:
         return secs
@@ -256,7 +257,7 @@ def smooth(secs, n=None, keys=('roughness', 'steer', 'speed')):
 
 
 def classify(s, use_curv=USE_CURV):
-    """Nivå 0-2 och skäl. Varje mätvärde som passerar en gräns höjer nivån."""
+    """Level 0-2 and reasons. Each metric that passes a limit raises the level."""
     level, why = 0, []
 
     def check(key, value, text):
@@ -269,14 +270,14 @@ def classify(s, use_curv=USE_CURV):
         elif lo is not None and value >= lo:
             level = max(level, 1); why.append((1, text))
 
-    check('grade', s['grade'], 'brant %.0f %%' % s['grade'])
+    check('grade', s['grade'], 'steep %.0f %%' % s['grade'])
     if s['avg_grade'] >= 3:
-        check('climb', s['climb'], 'lång backe +%.0f m' % s['climb'])
-    check('cv', s['cv'], 'ryckig fart')
-    check('stop_s', s['stop_s'], 'stopp %d s' % s['stop_s'])
+        check('climb', s['climb'], 'long climb +%.0f m' % s['climb'])
+    check('cv', s['cv'], 'uneven speed')
+    check('stop_s', s['stop_s'], 'stopped %d s' % s['stop_s'])
     if use_curv:
-        check('curv', s['curv'], 'kurvigt')
-    ml = MOUNT_LIMITS[s.get('mount') or 'styre']
+        check('curv', s['curv'], 'twisty')
+    ml = MOUNT_LIMITS[s.get('mount') or 'handlebar']
     steer, v_rel = s.get('steer'), s.get('v_rel')
     if steer is not None and steer >= ml['trail_steer']:
         level = max(level, 1)
@@ -286,18 +287,18 @@ def classify(s, use_curv=USE_CURV):
                 (ml['v_rel_hard'] is not None and v_rel is not None and v_rel <= ml['v_rel_hard']))
         if hard:
             level = 2
-            why.append((2, 'långsam på stig' if slow else 'mycket styrande'))
+            why.append((2, 'slow on trail' if slow else 'lots of steering'))
         else:
-            why.append((1, 'stig'))
+            why.append((1, 'trail'))
     walk = LIMITS['walk_kmh'][1]
     if walk is not None and s['speed'] is not None and s['avg_grade'] >= 5 and s['speed'] < walk:
-        level = 2; why.append((2, 'gångfart i uppförsbacke'))
+        level = 2; why.append((2, 'walking pace uphill'))
     why.sort(key=lambda w: -w[0])
     return level, [w[1] for w in why]
 
 
 def per_scale(secs):
-    """Mätvärden sammanställda per manuellt mtb:scale-värde, för kalibrering."""
+    """Metrics summarized per manual mtb:scale value, for calibration."""
     out = []
     for sc in sorted({s['scale'] for s in secs if s['scale'] is not None}):
         ss = [s for s in secs if s['scale'] == sc]
@@ -318,7 +319,7 @@ def per_scale(secs):
 
 
 def analyze(rows, prof, mount=None):
-    """mount: None = avgör per sektion från pulsen, 'arm' eller 'styre' = hela passet."""
+    """mount: None = decide per section from the heart rate, 'wrist' or 'handlebar' = the whole ride."""
     climbs = long_climbs(prof)
     secs = sections(prof, rows, climbs, mount=mount)
     return {'climbs': climbs, 'sections': secs, 'per_scale': per_scale(secs),
@@ -340,23 +341,23 @@ def main():
     if '--mount' in args:
         i = args.index('--mount'); mount = args[i + 1]; del args[i:i + 2]
         if mount not in MOUNTS:
-            sys.exit('--mount ska vara ' + ' eller '.join(MOUNTS))
+            sys.exit('--mount must be ' + ' or '.join(MOUNTS))
     rows = parse(args[0])
     a = analyze(rows, build_profile(rows), mount=mount)
-    print('Vägfart %.1f km/h. Klockan: %s' % (a['v_road'], ', '.join(
+    print('Road speed %.1f km/h. Watch: %s' % (a['v_road'], ', '.join(
         '%s %.1f km' % (mm, m / 1000) for mm, m in a['mount_m'].items() if m)))
     for c in a['climbs']:
-        print('lång backe %d  vid %.2f km  %4d m  +%.1f m  snitt %.1f %%' % (
+        print('long climb %d  at %.2f km  %4d m  +%.1f m  avg %.1f %%' % (
             c['id'], c['start_d'] / 1000, c['length_m'], c['gain'], c['avg']))
     total = sum(s['length_m'] for s in a['sections'])
     for L, name in enumerate(LEVELS):
         m = sum(s['length_m'] for s in a['sections'] if s['level'] == L)
-        print('%-15s %6.0f m  %3.0f %%' % (name, m, 100 * m / total if total else 0))
+        print('%-17s %6.0f m  %3.0f %%' % (name, m, 100 * m / total if total else 0))
     print('\nPer mtb:scale (median):')
     for p in a['per_scale']:
-        print('  scale %s  %5d m  fart %s km/h  cv %s  lutning %s %%  kurv %s  stopp/km %s  nivåer %s %%' % (
+        print('  scale %s  %5d m  speed %s km/h  cv %s  grade %s %%  curv %s  stops/km %s  levels %s %%' % (
             p['scale'], p['length_m'], p['speed'], p['cv'], p['grade'], p['curv'], p['stops_per_km'], p['levels']))
-    print('Sensorer:', ', '.join(k for k, v in a['has'].items() if v) or 'inga (appen v0.2)')
+    print('Sensors:', ', '.join(k for k, v in a['has'].items() if v) or 'none (app v0.2)')
 
 
 if __name__ == '__main__':

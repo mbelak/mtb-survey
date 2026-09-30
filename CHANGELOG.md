@@ -1,47 +1,47 @@
-# Ändringar
+# Changelog
 
-## Oreleasat
+## Unreleased
 
-Analysverktygen:
-- Två lägen för var klockan satt, styret eller armen. Läget avgörs per sektion från pulsen,
-  eller anges med `--mount arm|styre`. Armsektioner streckas på kartan.
-- Ny bedömning: stig avgörs av styrningen, svår stig av styrningen och farten relativt dagens vägfart.
-  Gränserna är kalibrerade om, se [docs/bedomning.md](docs/bedomning.md).
-- `roughness` påverkar inte längre nivån.
-- `tools/fitdump.py` läser `device_info`, så att anslutna pulsband syns.
-- Enhetstester i `tools/test_trailanalysis.py`.
+Analysis tools:
+- Two modes for where the watch was mounted, on the handlebar or on the wrist. The mode is detected per
+  section from the heart rate, or set with `--mount wrist|handlebar`. Wrist sections are dashed on the map.
+- New assessment: trail is decided by the steering, hard trail by the steering and the speed relative to
+  the day's road speed. The limits are recalibrated, see [docs/assessment.md](docs/assessment.md).
+- `roughness` no longer affects the level.
+- `tools/fitdump.py` reads `device_info`, so connected heart rate straps are visible.
+- Unit tests in `tools/test_trailanalysis.py`.
 
-Projektet:
-- Dokumentationen är uppdelad i README och `docs/`. Makefile med `build`, `package` och `test`, och GitHub Actions för testerna.
-- Skärmbilder av klockan och kartan, och en exempelkarta i `docs/exempel/`.
-- MIT-licens.
+Project:
+- The documentation is split into the README and `docs/`. A Makefile with `build`, `package` and `test`, and GitHub Actions for the tests.
+- Screenshots of the watch and the map, and an example map in `docs/example/`.
+- MIT license.
 
 ## 0.3
 
-Klockappen:
-- Rörelsesensorer: developer fields `roughness`, `jolt` och `steer` på varje record.
-- Puls och ANT+-kadens och fart aktiveras via `Sensor.setEnabledSensors`.
-- Levande sensorvärden på skärmen under inspelning.
-- Enhetstester för `motionMetrics()` i `test/`.
+Watch app:
+- Motion sensors: developer fields `roughness`, `jolt` and `steer` on every record.
+- Heart rate and ANT+ cadence and speed are enabled via `Sensor.setEnabledSensors`.
+- Live sensor values on the screen while recording.
+- Unit tests for `motionMetrics()` in `test/`.
 
-Analysverktygen:
-- `tools/fitdump.py` läser höjd, sträcka, fart, puls och kadens, och tolkar `NaN` som saknat värde.
-- `tools/fitmap.py` visar höjdprofil, branta backar och automatisk bedömning.
-- `tools/trailanalysis.py`: automatisk bedömning per 25 m-sektion.
-- `tools/trailsegments.py`: stigsegment mellan korsningar från OpenStreetMap, jämförelse med
-  OSM:s `mtb:scale` och skrivning av taggen till OSM från kartsidan.
+Analysis tools:
+- `tools/fitdump.py` reads altitude, distance, speed, heart rate and cadence, and treats `NaN` as a missing value.
+- `tools/fitmap.py` shows an elevation profile, steep slopes and the automatic assessment.
+- `tools/trailanalysis.py`: automatic assessment per 25 m section.
+- `tools/trailsegments.py`: trail segments between junctions from OpenStreetMap, comparison with
+  the OSM `mtb:scale` and writing the tag to OSM from the map page.
 
 ## 0.2
 
-- Explicit kontinuerlig GPS via `Toybox.Position`.
-- GPS-status på skärmen.
-- `mtb_scale` skrivs i takt med records i stället för bara vid knapptryck.
-- Vibration även vid start, paus, återuppta och spara.
-- Status `PAUSED`, färgkodning och layout relativ till skärmstorleken.
-- Säker avslutning i `onStop()`.
-- `tools/fitdump.py` för att granska FIT-filer.
-- `tools/fitmap.py` för färgkodad karta och GeoJSON.
+- Explicit continuous GPS via `Toybox.Position`.
+- GPS status on the screen.
+- `mtb_scale` is written in step with the records instead of only on button presses.
+- Vibration also on start, pause, resume and save.
+- `PAUSED` status, color coding and a layout relative to the screen size.
+- Safe shutdown in `onStop()`.
+- `tools/fitdump.py` for inspecting FIT files.
+- `tools/fitmap.py` for a color-coded map and GeoJSON.
 
 ## 0.1
 
-- Första versionen: `mtb_scale` som developer field, ändrat med UP och DOWN och skrivet vid knapptryck.
+- First version: `mtb_scale` as a developer field, changed with UP and DOWN and written on button presses.

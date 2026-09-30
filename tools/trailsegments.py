@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Stigsegment: hela stigen mellan två korsningar får ett sammanvägt värde.
+"""Trail segments: the whole trail between two junctions gets one combined value.
 
-Stignätet hämtas från OpenStreetMap (Overpass) för spårets område och cachas
-i utmappen. Varje OSM-way delas vid noder som delas av flera ways, alltså
-korsningar. Spåret matchas mot närmaste segment inom MATCH_M meter.
+The trail network is fetched from OpenStreetMap (Overpass) for the track's area and cached
+in the output directory. Each OSM way is split at nodes shared by several ways, i.e.
+junctions. The track is matched to the nearest segment within MATCH_M meters.
 
-Sammanvägning per segment, både för din bedömning (mtb:scale) och för den
-automatiska nivån: det högsta värde som förekommer sammanhängande under minst
-MIN_RUN_M meter gäller. Är segmentet kortare används halva den täckta längden
-som gräns. Har samma stig cyklats flera gånger räknas alla passen.
-Delar av spåret som saknar OSM-väg inom MATCH_M blir egna segment ("u1", "u2" ...)
-med spårets egen geometri.
+Combining per segment, both for your assessment (mtb:scale) and for the
+automatic level: the highest value that occurs continuously for at least
+MIN_RUN_M meters applies. If the segment is shorter, half the covered length
+is used as the limit. If the same trail was ridden several times, all passes count.
+Parts of the track with no OSM way within MATCH_M become their own segments ("u1", "u2" ...)
+with the track's own geometry.
 """
 import hashlib, json, math, os, sys, urllib.parse, urllib.request
 
@@ -19,13 +19,13 @@ ENDPOINTS = ['https://lz4.overpass-api.de/api/interpreter',
              'https://overpass.kumi.systems/api/interpreter']
 HIGHWAYS = ('path|track|footway|cycleway|bridleway|unclassified|service|residential|'
             'tertiary|secondary|primary|living_street|pedestrian|steps')
-MATCH_M = 25        # spårpunkt längre från alla OSM-vägar än så räknas som omatchad
-MIN_RUN_M = 50      # minsta sammanhängande längd för att ett värde ska styra segmentet
-MIN_RUN_PTS = 3     # kortare matchningsbyten än så (15 m) slätas ut
-MIN_COVER_FRAC = 0.5  # spåret måste följa segmentet minst så stor del av längden, eller MIN_RUN_M
-MARGIN_DEG = 0.001  # marginal runt spåret i grader lat (lon dubblas)
-EXTRA_TAGS = ('surface', 'smoothness', 'trail_visibility')   # följer med från OSM, till hjälp vid taggning
-DIFF = ['saknas', 'lika', 'osm_lägre', 'osm_högre']          # avvikelseklasser mot OSM:s mtb:scale
+MATCH_M = 25        # a track point farther than this from all OSM ways counts as unmatched
+MIN_RUN_M = 50      # minimum continuous length for a value to decide the segment
+MIN_RUN_PTS = 3     # match switches shorter than this (15 m) are smoothed out
+MIN_COVER_FRAC = 0.5  # the track must follow at least this share of the segment's length, or MIN_RUN_M
+MARGIN_DEG = 0.001  # margin around the track in degrees lat (doubled for lon)
+EXTRA_TAGS = ('surface', 'smoothness', 'trail_visibility')   # carried over from OSM, to help with tagging
+DIFF = ['missing', 'equal', 'osm_lower', 'osm_higher']       # difference classes vs OSM's mtb:scale
 USER_AGENT = 'mtb-survey-fitmap/0.3'
 
 
@@ -36,7 +36,7 @@ def bbox_of(prof):
 
 
 def fetch_ways(bbox, cache_dir):
-    """OSM-ways i området, från cache om den finns."""
+    """OSM ways in the area, from the cache if it exists."""
     q = '[out:json][timeout:60];way[highway~"^(%s)$"](%s);out geom;' % (HIGHWAYS, ','.join('%.4f' % v for v in bbox))
     key = hashlib.sha1(q.encode()).hexdigest()[:12]
     path = os.path.join(cache_dir, 'osm_%s.json' % key)
@@ -50,18 +50,18 @@ def fetch_ways(bbox, cache_dir):
             raw = urllib.request.urlopen(req, timeout=90).read()
             d = json.loads(raw)
             if 'elements' not in d:
-                raise ValueError('oväntat svar')
+                raise ValueError('unexpected response')
             with open(path, 'w') as f:
                 f.write(raw.decode('utf-8'))
             return d['elements']
         except Exception as e:  # noqa: BLE001
             err = e
             print('Overpass %s: %s' % (url, e), file=sys.stderr)
-    raise RuntimeError('Overpass svarade inte: %s' % err)
+    raise RuntimeError('Overpass did not respond: %s' % err)
 
 
 def split_ways(ways):
-    """Delar varje way vid korsningsnoder. Returnerar segment med koordinater [lat, lon]."""
+    """Splits each way at junction nodes. Returns segments with coordinates [lat, lon]."""
     count = {}
     for w in ways:
         for n in w.get('nodes', []):
@@ -106,7 +106,7 @@ def _pt_seg(px, py, ax, ay, bx, by):
 
 
 def match(prof, segs):
-    """Index i segs för varje profilpunkt, eller -1. Korta byten slätas ut."""
+    """Index in segs for each profile point, or -1. Short switches are smoothed out."""
     if not prof or not segs:
         return [-1] * len(prof)
     proj = _projector(prof[0][3])
@@ -142,7 +142,7 @@ def match(prof, segs):
 
 
 def _along(px, py, pts):
-    """Position längs polylinjen pts för den punkt på linjen som ligger närmast (px, py)."""
+    """Position along the polyline pts of the point on the line nearest to (px, py)."""
     best, bd, acc = 0.0, float('inf'), 0.0
     for i in range(1, len(pts)):
         (ax, ay), (bx, by) = pts[i - 1], pts[i]
@@ -157,12 +157,12 @@ def _along(px, py, pts):
 
 
 def _drop_glancing(prof, m, xy, proj):
-    """Tar bort matchningar där spåret bara nuddar ett segment: vid en korsning, eller
-    där en gren löper nära spåret de första metrarna. Spåret måste följa segmentet
-    minst MIN_COVER_FRAC av dess längd, eller MIN_RUN_M. Annars går punkterna till
-    grannsegmentet, i första hand det föregående. Punkterna ligger ett steg isär och
-    kan missa upp till ett steg i varje ände, så ett steg räknas som marginal.
-    Spårets första och sista del behålls alltid, eftersom turen kan börja och sluta mitt på en stig."""
+    """Removes matches where the track only touches a segment: at a junction, or
+    where a branch runs close to the track for the first few meters. The track must follow the segment
+    for at least MIN_COVER_FRAC of its length, or MIN_RUN_M. Otherwise the points go to
+    the neighboring segment, preferably the previous one. The points are one step apart and
+    can miss up to one step at each end, so one step counts as margin.
+    The first and last parts of the track are always kept, since the ride can start and end in the middle of a trail."""
     step = prof[1][0] - prof[0][0] if len(prof) > 1 else 0
     runs = _runs(m)
     for k, r in enumerate(runs):
@@ -202,9 +202,9 @@ def _smooth(m):
 
 
 def decide(runs_by_value, total_by_value, covered_m, min_run_m=MIN_RUN_M):
-    """Värdet som gäller för segmentet, och hur många meter som motiverar det.
+    """The value that applies to the segment, and how many meters justify it.
 
-    runs_by_value: {värde: längsta sammanhängande längd}, total_by_value: {värde: meter totalt}.
+    runs_by_value: {value: longest continuous length}, total_by_value: {value: total meters}.
     """
     limit = min(min_run_m, covered_m / 2)
     cands = [v for v, L in runs_by_value.items() if v is not None and L >= limit]
@@ -218,14 +218,14 @@ def decide(runs_by_value, total_by_value, covered_m, min_run_m=MIN_RUN_M):
 
 
 def aggregate(prof, m, segs, secs, per, step):
-    """Sammanväger värden per segment. Returnerar (segment med värden, match-index per punkt)."""
+    """Combines values per segment. Returns (segments with values, match index per point)."""
     used = {}
     for r in _runs(m):
         if r[2] >= 0:
             used.setdefault(r[2], []).append(r)
-    # omatchade partier blir egna segment
+    # unmatched stretches become their own segments
     unmatched = [r for r in _runs(m) if r[2] < 0 and r[1] - r[0] >= 2]
-    # segmenten numreras i den ordning de först cyklades
+    # segments are numbered in the order they were first ridden
     items = [(runs[0][0], si, dict(segs[si]), runs) for si, runs in used.items()]
     for k, r in enumerate(unmatched):
         coords = [[p[3], p[4]] for p in prof[r[0]:r[1]]]
@@ -258,7 +258,7 @@ def aggregate(prof, m, segs, secs, per, step):
         s['passes'] = len(runs)
         s['scale'], s['scale_m'] = decide(best_s, tot_s, covered)
         s['level'], s['level_m'] = decide(best_l, tot_l, covered) if secs else (None, 0)
-        # sparas så att hela wayen kan sammanvägas med samma regel
+        # kept so the whole way can be combined with the same rule
         s['scale_runs'] = [[v, best_s[v], tot_s[v]] for v in best_s]
         s['level_runs'] = [[v, best_l[v], tot_l[v]] for v in best_l]
         result.append(s)
@@ -267,7 +267,7 @@ def aggregate(prof, m, segs, secs, per, step):
 
 
 def osm_int(v):
-    """mtb:scale i OSM kan vara '2', '2+' eller '3-'. Siffran räknas."""
+    """mtb:scale in OSM can be '2', '2+' or '3-'. The digit counts."""
     if v is None:
         return None
     v = str(v).strip().rstrip('+-')
@@ -275,12 +275,12 @@ def osm_int(v):
 
 
 def diff_class(mine, osm):
-    """Avvikelse mellan eget värde och OSM:s. None när eget värde saknas."""
+    """Difference between your own value and OSM's. None when your own value is missing."""
     if mine is None:
         return None
     if osm is None:
-        return 'saknas'
-    return 'lika' if mine == osm else ('osm_högre' if osm > mine else 'osm_lägre')
+        return 'missing'
+    return 'equal' if mine == osm else ('osm_higher' if osm > mine else 'osm_lower')
 
 
 def _merge_runs(parts, key):
@@ -292,15 +292,15 @@ def _merge_runs(parts, key):
 
 
 def build_ways(segments):
-    """En post per cyklad OSM-way: sammanvägt värde för hela wayen, avvikelse mot OSM,
-    och om delarna mellan korsningarna skiljer sig (wayen bör då delas i OSM).
-    Sätter också diff/diff_auto på varje del. Delar utan way ingår inte."""
+    """One entry per ridden OSM way: combined value for the whole way, difference vs OSM,
+    and whether the parts between junctions differ (the way should then be split in OSM).
+    Also sets diff/diff_auto on each part. Parts without a way are not included."""
     by_way = {}
     for s in segments:
         if s.get('way') is not None:
             by_way.setdefault(s['way'], []).append(s)
     out = []
-    for way, parts in sorted(by_way.items(), key=lambda kv: kv[1][0]['id']):   # cykelordning
+    for way, parts in sorted(by_way.items(), key=lambda kv: kv[1][0]['id']):   # riding order
         first = parts[0]
         osm_raw = next((p.get('osm_scale') for p in parts if p.get('osm_scale') is not None), None)
         osm = osm_int(osm_raw)

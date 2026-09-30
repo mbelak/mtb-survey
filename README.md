@@ -1,227 +1,228 @@
-# MTB Survey för Garmin Epix Gen 2
+# MTB Survey for Garmin Epix Gen 2
 
-MTB Survey kartlägger hur svåra stigar är, medan du cyklar dem. Du anger svårigheten med klockans
-knappar, och klockan mäter samtidigt skakningar och styrrörelser. Efteråt blir turen en karta där
-stigarna är färgade efter din bedömning och efter en automatisk bedömning. Därifrån kan du skriva
-taggen `mtb:scale` direkt till OpenStreetMap.
+MTB Survey maps how difficult trails are while you ride them. You set the difficulty with the watch
+buttons, and at the same time the watch measures shaking and steering movements. Afterwards the ride
+becomes a map where the trails are colored by your assessment and by an automatic assessment. From
+there you can write the `mtb:scale` tag directly to OpenStreetMap.
 
 <p align="center">
-  <img src="docs/bilder/klocka.png" alt="Klockappen i Connect IQ-simulatorn: rubriken MTB SURVEY, GPS-status, svårigheten 1 i stora siffror och hjälptext om knapparna" width="260">
+  <img src="docs/images/watch.png" alt="The watch app in the Connect IQ simulator: the title MTB SURVEY, GPS status, the difficulty 1 in large digits and help text for the buttons" width="260">
 </p>
 
-![Exempelkarta med stigarna färgade efter den automatiska bedömningen: grönt lätt, gult kräver vana, rött svårt för barn. Branta backar är markerade med lutning i procent.](docs/bilder/karta-automatisk.png)
+![Example map with the trails colored by the automatic assessment: green easy, yellow needs experience, red hard for kids. Steep slopes are marked with their grade in percent.](docs/images/map-automatic.png)
 
-Projektet består av två delar:
+The project has two parts:
 
-- **Klockappen** i `source/`. En Connect IQ-app som spelar in en vanlig cykelaktivitet och skriver
-  svårigheten och sensorvärdena i FIT-filen, varje sekund.
-- **Analysverktygen** i `tools/`. Python-skript utan externa paket som läser FIT-filen, bedömer stigarna
-  och gör kartan.
+- **The watch app** in `source/`. A Connect IQ app that records a normal cycling activity and writes
+  the difficulty and the sensor values to the FIT file, every second.
+- **The analysis tools** in `tools/`. Python scripts without external packages that read the FIT file,
+  assess the trails and make the map.
 
 ```
-klockan ──FIT-fil──▶ fitmap.py ──▶ karta (HTML) och GeoJSON ──▶ mtb:scale i OpenStreetMap
+watch ──FIT file──▶ fitmap.py ──▶ map (HTML) and GeoJSON ──▶ mtb:scale in OpenStreetMap
                         │
-                        ├─ trailanalysis.py   automatisk bedömning per 25 m
-                        └─ trailsegments.py   stigar mellan korsningar, från OpenStreetMap
+                        ├─ trailanalysis.py   automatic assessment per 25 m
+                        └─ trailsegments.py   trails between junctions, from OpenStreetMap
 ```
 
-## Krav
+## Requirements
 
-| För | Behövs |
+| For | You need |
 |---|---|
-| Klockappen | Garmin Epix Gen 2 och [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) 9.2 eller senare, med en egen utvecklarnyckel |
-| Analysverktygen | Python 3.9 eller senare. Inga paket behövs. |
-| Kartan | En webbläsare med internet, för kartbilderna |
-| Stigsegment | Internet första gången, för OpenStreetMaps Overpass-API. Svaret sparas sedan lokalt. |
-| Testerna av OSM-skrivningen | Node 18 eller senare |
+| The watch app | Garmin Epix Gen 2 and [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) 9.2 or later, with your own developer key |
+| The analysis tools | Python 3.9 or later. No packages needed. |
+| The map | A web browser with internet access, for the map tiles |
+| Trail segments | Internet access the first time, for the OpenStreetMap Overpass API. The response is then cached locally. |
+| The tests of OSM writing | Node 18 or later |
 
-Appen är bara byggd och provad för Epix Gen 2 (`epix2`). Andra klockor med gyroskop och
-API-nivå 3.3 bör fungera om de läggs till i `manifest.xml`, men det är inte provat.
+The app is only built and tested for the Epix Gen 2 (`epix2`). Other watches with a gyroscope and
+API level 3.3 should work if they are added to `manifest.xml`, but this has not been tested.
 
-## Installera på klockan
+## Install on the watch
 
-Det finns två sätt: via Connect IQ Store eller genom att kopiera appen direkt till klockan över USB.
+There are two ways: through the Connect IQ Store, or by copying the app directly to the watch over USB.
 
-**Appen finns inte öppet i Connect IQ Store.** Den ligger just nu som testapp på upphovspersonens
-eget utvecklarkonto. Då kan bara den personen ladda ner den. Vill du installera den via butiken
-måste du ladda upp den själv till ett eget utvecklarkonto. Enklast är att kopiera den över USB.
+**The app is not publicly available in the Connect IQ Store.** It is currently a beta app on the
+author's personal developer account, so only the author can download it. If you want to install it
+through the store, you have to upload it yourself to your own developer account. Copying it over USB
+is the easiest way.
 
-### Bygga
+### Build
 
-1. Installera [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) och skapa en utvecklarnyckel
-   enligt Garmins anvisning, om du inte har en. Lägg den som `developer_key` i projektets rot.
-   Filen ignoreras av git.
-2. Bygg appen:
+1. Install the [Connect IQ SDK](https://developer.garmin.com/connect-iq/sdk/) and create a developer key
+   following Garmin's instructions, if you do not have one. Put it as `developer_key` in the project root.
+   Git ignores the file.
+2. Build the app:
    ```
    make build
    ```
-   Det motsvarar `monkeyc -f monkey.jungle -d epix2 -o bin/mtbsurveyepixgen2.prg -y developer_key -r`.
-   Ligger SDK:n inte i `PATH`, ange sökvägen: `make build MONKEYC="/sökväg/till/sdk/bin/monkeyc"`.
-   I VS Code går det också med *Monkey C: Build for Device* och epix (Gen 2).
+   This runs `monkeyc -f monkey.jungle -d epix2 -o bin/mtbsurveyepixgen2.prg -y developer_key -r`.
+   If the SDK is not in your `PATH`, give the path: `make build MONKEYC="/path/to/sdk/bin/monkeyc"`.
+   In VS Code you can also use *Monkey C: Build for Device* and choose epix (Gen 2).
 
-### Alternativ 1: kopiera över USB (sideload)
+### Option 1: copy over USB (sideload)
 
-1. Anslut klockan med USB.
-2. Kopiera `bin/mtbsurveyepixgen2.prg` till mappen `GARMIN/APPS/` på klockan.
-3. Koppla från. Appen finns sedan bland klockans appar.
+1. Connect the watch with USB.
+2. Copy `bin/mtbsurveyepixgen2.prg` to the folder `GARMIN/APPS/` on the watch.
+3. Disconnect. The app is then listed among the watch's apps.
 
-Appen uppdateras inte automatiskt. Kopiera en ny `.prg` för att uppdatera.
+The app does not update automatically. Copy a new `.prg` to update it.
 
-### Alternativ 2: via Connect IQ Store
+### Option 2: through the Connect IQ Store
 
-1. Bygg paketet för butiken:
+1. Build the package for the store:
    ```
    make package
    ```
-   Det ger `bin/mtbsurvey.iq`, alltså `monkeyc -e -f monkey.jungle -o bin/mtbsurvey.iq -y developer_key -r`.
-   Laddar du upp under ett eget konto: byt först appens id i `manifest.xml`. Id:t måste vara unikt
-   i butiken, och det nuvarande används redan av originalappen. Ett nytt id går att skapa med
+   This gives `bin/mtbsurvey.iq`, that is `monkeyc -e -f monkey.jungle -o bin/mtbsurvey.iq -y developer_key -r`.
+   If you upload it under your own account, first change the app id in `manifest.xml`. The id must be
+   unique in the store, and the current one is already used by the original app. You can create a new id with
    `uuidgen | tr -d '-' | tr 'A-Z' 'a-z'`.
-2. Logga in i Garmins utvecklarportal för Connect IQ och ladda upp `bin/mtbsurvey.iq` som en ny app.
-   Välj att publicera den som testapp (beta) om bara du ska kunna ladda ner den.
-3. Installera appen från Connect IQ-appen i telefonen, med samma Garmin-konto.
+2. Log in to Garmin's Connect IQ developer portal and upload `bin/mtbsurvey.iq` as a new app.
+   Choose to publish it as a beta app if only you should be able to download it.
+3. Install the app from the Connect IQ app on your phone, using the same Garmin account.
 
-En testapp syns bara för kontot som laddade upp den. Ska andra kunna installera appen från butiken
-måste den publiceras öppet och granskas av Garmin.
+A beta app is only visible to the account that uploaded it. For others to install the app from the store,
+it must be published publicly and reviewed by Garmin.
 
-### Efter installationen
+### After installing
 
-Ställ gärna in registrering varje sekund i klockans systeminställningar, för tätast möjliga spår.
+Consider setting recording to every second in the watch's system settings, for the densest possible track.
 
-Efter en tur ligger FIT-filen i `GARMIN/Activity/` på klockan. Den går också att ladda ner från
-Garmin Connect som *Exportera original*.
+After a ride the FIT file is in `GARMIN/Activity/` on the watch. You can also download it from
+Garmin Connect with *Export Original*.
 
-## Använda i fält
+## Use in the field
 
-| Knapp | Funktion | Vibration |
+| Button | Function | Vibration |
 |---|---|---|
-| START | Starta, pausa och återuppta inspelningen | lång vid start och återuppta, kort vid paus |
-| UP | Höj svårigheten ett steg, högst 6 | kort |
-| DOWN | Sänk svårigheten ett steg, lägst 0 | kort |
-| BACK | Stoppa, spara aktiviteten och avsluta, utan bekräftelse | längst |
+| START | Start, pause and resume recording | long on start and resume, short on pause |
+| UP | Raise the difficulty one step, at most 6 | short |
+| DOWN | Lower the difficulty one step, at least 0 | short |
+| BACK | Stop, save the activity and exit, without confirmation | longest |
 
-Skärmen visar GPS-status, aktuell svårighet med stora siffror, inspelningsstatus och längst ner
-de senaste sensorvärdena, `RGH` för skak och `STR` för styrning. Står det `NO MOTION DATA` kommer
-inga rörelsedata. Vänta på grön `GPS OK` innan du startar, annars saknar början av spåret position.
-Svårigheten börjar på 1.
+The screen shows the GPS status, the current difficulty in large digits, the recording status and, at the
+bottom, the latest sensor values: `RGH` for shake (roughness) and `STR` for steering. If it says
+`NO MOTION DATA`, no motion data is coming in. Wait for a green `GPS OK` before you start, otherwise the
+start of the track has no position. The difficulty starts at 1.
 
-**Sätt klockan på styret.** Den automatiska bedömningen är mest träffsäker där, och värdena
-håller sig lika från dag till dag. På handleden fungerar den sämre, se [bedömningen](docs/bedomning.md).
+**Put the watch on the handlebar.** The automatic assessment is most accurate there, and the values
+stay the same from day to day. On the wrist it works less well, see [the assessment](docs/assessment.md).
 
-**Vilken skala du använder bestämmer du själv.** Appen sparar bara siffran. Skriver du till
-OpenStreetMap ska den följa [`mtb:scale`](https://wiki.openstreetmap.org/wiki/Key:mtb:scale).
-Den automatiska bedömningen är kalibrerad för en enklare skala med tre nivåer:
-0 = grusväg eller asfalt, 1 = barnvänlig stig, 2 = stig som inte är barnvänlig.
+**You choose which scale to use.** The app only stores the number. If you write to
+OpenStreetMap, it should follow [`mtb:scale`](https://wiki.openstreetmap.org/wiki/Key:mtb:scale).
+The automatic assessment is calibrated for a simpler scale with three levels:
+0 = gravel road or asphalt, 1 = child-friendly trail, 2 = trail that is not child-friendly.
 
-**Markera platser.** Ett snabbt UP följt av DOWN syns som en kort topp i FIT-filen.
-Det går att använda för att markera till exempel början och slutet på en slinga.
+**Mark places.** A quick UP followed by DOWN shows up as a short peak in the FIT file.
+You can use it to mark, for example, the start and end of a loop.
 
-## Analysera en tur
+## Analyze a ride
 
-Alla kommandon körs från projektets rot.
+Run all commands from the project root.
 
-**Karta**, det vanligaste:
+**Map**, the most common:
 ```
-python3 tools/fitmap.py tur.fit [utmapp]
+python3 tools/fitmap.py ride.fit [outdir]
 ```
-Skriver en fristående HTML-karta och GeoJSON-filer bredvid FIT-filen, eller i `utmapp`.
-Kartan visar spåret färgat efter din bedömning eller den automatiska, en höjdprofil, branta backar,
-stigsegment mellan korsningar och en jämförelse med `mtb:scale` i OpenStreetMap.
-Se [kartsidan](docs/kartsidan.md).
+Writes a standalone HTML map and GeoJSON files next to the FIT file, or in `outdir`.
+The map shows the track colored by your assessment or the automatic one, an elevation profile, steep
+slopes, trail segments between junctions and a comparison with `mtb:scale` in OpenStreetMap.
+See [the map page](docs/map-page.md).
 
-| Flagga | Betydelse |
+| Flag | Meaning |
 |---|---|
-| `--site mapp` | Skriver också en mapp för webbhotell, som fungerar under en strikt Content Security Policy |
-| `--no-osm` | Hoppar över stigsegmenten, alltså ingen fråga till OpenStreetMap |
-| `--mount arm` eller `--mount styre` | Anger var klockan satt. Annars avgörs det från pulsen. |
-| `--osm-client-id ID` | Slår på skrivning av `mtb:scale` till OpenStreetMap från kartsidan |
-| `--osm-api URL` | Annan OSM-server, till exempel testservern |
+| `--site dir` | Also writes a folder for a web host, which works under a strict Content Security Policy |
+| `--no-osm` | Skips the trail segments, so no request to OpenStreetMap |
+| `--mount wrist` or `--mount handlebar` | Sets where the watch was mounted. Otherwise it is detected from the heart rate. |
+| `--osm-client-id ID` | Enables writing `mtb:scale` to OpenStreetMap from the map page |
+| `--osm-api URL` | Another OSM server, for example the test server |
 
-**Automatisk bedömning** i terminalen:
+**Automatic assessment** in the terminal:
 ```
-python3 tools/trailanalysis.py tur.fit [--mount arm|styre]
+python3 tools/trailanalysis.py ride.fit [--mount wrist|handlebar]
 ```
 
-**Avkoda FIT-filen**, för att granska den:
+**Decode the FIT file**, to inspect it:
 ```
-python3 tools/fitdump.py tur.fit
+python3 tools/fitdump.py ride.fit
 ```
-Sista raden summerar hur många records som har position, svårighet och sensorvärden.
+The last line sums up how many records have a position, a difficulty and sensor values.
 
-## Exempel
+## Example
 
-Exempelkartan [docs/exempel/karta.html](docs/exempel/karta.html) är gjord från 8 km av en tur med
-handbedömning. Ladda ner filen och öppna den i en webbläsare. Början och slutet av turen är bortklippta.
+The example map [docs/example/map.html](docs/example/map.html) is made from 8 km of a ride with
+a manual assessment. Download the file and open it in a web browser. The start and end of the ride are cut off.
 
-Samma tur med din egen bedömning i stället för den automatiska, och med höjdprofilen under kartan:
+The same ride with your own assessment instead of the automatic one, and with the elevation profile below the map:
 
-![Kartan i läget Din bedömning. Spåret är färgat efter värdet som angavs med knapparna, med siffror på varje segment. Under kartan visas höjdprofilen i samma färger.](docs/bilder/karta-din-bedomning.png)
+![The map in Your assessment mode. The track is colored by the value set with the buttons, with numbers on each segment. The elevation profile below the map uses the same colors.](docs/images/map-your-assessment.png)
 
-Jämförelse med `mtb:scale` som redan finns i OpenStreetMap. Grått saknas i OSM, grönt är lika,
-blått betyder att OSM har ett lägre värde och rött ett högre:
+Comparison with the `mtb:scale` that already exists in OpenStreetMap. Gray means missing in OSM, green equal,
+blue means OSM has a lower value and red a higher one:
 
-![Kartan i läget Mot OSM, där varje stig är färgad efter hur bedömningen förhåller sig till OpenStreetMaps värde.](docs/bilder/karta-mot-osm.png)
+![The map in vs OSM mode, where each trail is colored by how the assessment compares with the OpenStreetMap value.](docs/images/map-vs-osm.png)
 
-Under kartan finns tabeller med den automatiska bedömningen och mätvärdena per nivå,
-följda av en rad per stig i OpenStreetMap:
+Below the map there are tables with the automatic assessment and the measurements per level,
+followed by one row per trail in OpenStreetMap:
 
-![Tabellerna Automatisk bedömning, Långa backar och Mätvärden per mtb:scale.](docs/bilder/tabeller.png)
+![The tables Automatic assessment, Long climbs and Measurements per mtb:scale.](docs/images/tables.png)
 
-## Dokumentation
+## Documentation
 
-| Dokument | Innehåll |
+| Document | Contents |
 |---|---|
-| [docs/kartsidan.md](docs/kartsidan.md) | Kartan, stigsegmenten, jämförelsen med OSM och skrivning till OSM |
-| [docs/bedomning.md](docs/bedomning.md) | Hur den automatiska bedömningen fungerar, hur den kalibrerades och hur träffsäker den är |
-| [docs/fit-falt.md](docs/fit-falt.md) | Fälten appen skriver i FIT-filen, och hur de läses |
-| [docs/implementation.md](docs/implementation.md) | Hur klockappen fungerar inuti |
-| [docs/verifiering.md](docs/verifiering.md) | Vad som är provat på klockan, i simulatorn och med tester |
-| [CHANGELOG.md](CHANGELOG.md) | Ändringar per version |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Hur du bidrar |
+| [docs/map-page.md](docs/map-page.md) | The map, the trail segments, the comparison with OSM and writing to OSM |
+| [docs/assessment.md](docs/assessment.md) | How the automatic assessment works, how it was calibrated and how accurate it is |
+| [docs/fit-fields.md](docs/fit-fields.md) | The fields the app writes to the FIT file, and how to read them |
+| [docs/implementation.md](docs/implementation.md) | How the watch app works inside |
+| [docs/verification.md](docs/verification.md) | What has been tested on the watch, in the simulator and with tests |
+| [CHANGELOG.md](CHANGELOG.md) | Changes per version |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
-## Projektstruktur
+## Project structure
 
 ```
-manifest.xml, monkey.jungle   Connect IQ-projektet
-source/                       klockappen (Monkey C)
-test/                         enhetstester för sensorberäkningen (Monkey C)
-resources/                    appens namn och ikon
+manifest.xml, monkey.jungle   the Connect IQ project
+source/                       the watch app (Monkey C)
+test/                         unit tests for the sensor calculation (Monkey C)
+resources/                    the app's name and icon
 tools/
-  fitdump.py                  FIT-avkodare utan beroenden
-  fitmap.py                   karta, höjdprofil och webbhotellsmapp
-  trailanalysis.py            automatisk bedömning; gränserna står överst
-  trailsegments.py            stigsegment och jämförelse med OpenStreetMap
-  osmedit.js                  taggbyte i OSM-way-XML, används av kartsidan
-  leaflet/                    Leaflet 1.9.4 för webbhotellsmappen
-  test_*.py, test_osmedit.js  tester
-docs/                         dokumentation, skärmbilder och exempelkarta
+  fitdump.py                  FIT decoder without dependencies
+  fitmap.py                   map, elevation profile and web host folder
+  trailanalysis.py            automatic assessment; the limits are at the top
+  trailsegments.py            trail segments and comparison with OpenStreetMap
+  osmedit.js                  tag change in OSM way XML, used by the map page
+  leaflet/                    Leaflet 1.9.4 for the web host folder
+  test_*.py, test_osmedit.js  tests
+docs/                         documentation, screenshots and example map
 ```
 
-## Tester
+## Tests
 
 ```
-make test          # Python- och Node-tester för analysverktygen
-make test-watch    # klockappens enhetstester i Connect IQ-simulatorn (starta simulatorn först)
+make test          # Python and Node tests for the analysis tools
+make test-watch    # the watch app's unit tests in the Connect IQ simulator (start the simulator first)
 ```
 
-Python- och Node-testerna körs också av GitHub Actions vid varje push.
+GitHub Actions also runs the Python and Node tests on every push.
 
-## Integritet
+## Privacy
 
-FIT-filer, kartor och GeoJSON-filer innehåller dina GPS-positioner, och ofta startar turen hemma.
-Dela dem bara med dem som får se var du har varit. `.gitignore` utesluter dem från git.
-Skriver du till OpenStreetMap blir bara taggen `mtb:scale` på stigen publik, inte ditt spår.
-Exempelkartan och skärmbilderna i `docs/` visar en del av en verklig tur, med början och slut bortklippta.
+FIT files, maps and GeoJSON files contain your GPS positions, and rides often start at home.
+Only share them with people who may see where you have been. `.gitignore` keeps them out of git.
+If you write to OpenStreetMap, only the `mtb:scale` tag on the trail becomes public, not your track.
+The example map and the screenshots in `docs/` show part of a real ride, with the start and end cut off.
 
-## Kända begränsningar
+## Known limitations
 
-- Garmin Connect visar inte developer fields från sidladdade appar. Värdena finns ändå i FIT-filen.
-- BACK sparar och avslutar direkt, utan bekräftelse.
-- Den automatiska bedömningen är kalibrerad mot en enda handbedömd tur. Den är inte provad på andra
-  cyklister, cyklar eller stigtyper.
-- Med klockan på handleden är gränsen mellan väg och stig preliminär och håller inte alla dagar.
+- Garmin Connect does not show developer fields from sideloaded apps. The values are still in the FIT file.
+- BACK saves and exits immediately, without confirmation.
+- The automatic assessment is calibrated against a single manually assessed ride. It has not been tested
+  with other riders, bikes or trail types.
+- With the watch on the wrist, the limit between road and trail is preliminary and does not hold every day.
 
-## Licens
+## License
 
-[MIT](LICENSE). Leaflet i `tools/leaflet/` har sin egen licens, BSD 2-Clause.
-Kartdata och stigar från OpenStreetMap, även i exempelkartan, omfattas av [ODbL](https://www.openstreetmap.org/copyright).
+[MIT](LICENSE). Leaflet in `tools/leaflet/` has its own license, BSD 2-Clause.
+Map data and trails from OpenStreetMap, also in the example map, are covered by the [ODbL](https://www.openstreetmap.org/copyright).

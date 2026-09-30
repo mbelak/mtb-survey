@@ -11,8 +11,8 @@ class MtbSurveyApp extends Application.AppBase {
         return [ _view, new MtbSurveyDelegate(_view) ];
     }
 
-    // Anropas när appen avslutas, oavsett väg ut. Ser till att en pågående
-    // inspelning sparas och att GPS och timer stängs av.
+    // Called when the app exits, whichever way. Makes sure an ongoing
+    // recording is saved and that GPS and the timer are turned off.
     function onStop(state) {
         if (_view != null) { _view.shutdown(); }
     }

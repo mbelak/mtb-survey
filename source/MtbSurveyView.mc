@@ -9,30 +9,30 @@ using Toybox.Sensor;
 using Toybox.Timer;
 using Toybox.WatchUi;
 
-// Huvudvy och appens tillstånd.
+// Main view and app state.
 //
-// Tillstånd:
-//   _scale       aktuellt mtb:scale-värde (0-6). Ändras ENDAST av UP/DOWN.
-//   _session     ActivityRecording-session (null = ingen aktivitet skapad).
-//   _scaleField  FIT developer field "mtb_scale" på MESG_TYPE_RECORD.
-//   _gpsQuality  senast kända Position.QUALITY_*-värde.
+// State:
+//   _scale       current mtb:scale value (0-6). Changed ONLY by UP/DOWN.
+//   _session     ActivityRecording session (null = no activity created).
+//   _scaleField  FIT developer field "mtb_scale" on MESG_TYPE_RECORD.
+//   _gpsQuality  last known Position.QUALITY_* value.
 //
-// Skrivning av developer field:
-//   Field.setData() lägger bara värdet "i kö" till nästa record som systemet
-//   skriver. För att mtb_scale ska vara ett persistent tillstånd på VARJE
-//   record skrivs därför _scale om till fältet en gång per sekund (onTick)
-//   samt vid varje positionshändelse (onPosition) så länge inspelning pågår.
-//   UP/DOWN ändrar bara _scale (och skriver det nya värdet direkt).
+// Writing the developer field:
+//   Field.setData() only "queues" the value for the next record the system
+//   writes. For mtb_scale to be a persistent state on EVERY record, _scale is
+//   therefore written to the field again once per second (onTick) and on
+//   every position event (onPosition) while recording is in progress.
+//   UP/DOWN only change _scale (and write the new value immediately).
 //
-// Rörelsesensorer (v0.3):
-//   Accelerometer och gyroskop läses i SAMPLE_HZ, i paket om en sekund.
-//   Varje paket blir tre developer fields på record:
-//     roughness  RMS av |a| kring sekundens medel, mG. Skakningar från rötter/stenar.
-//     jolt       största avvikelsen av |a| under sekunden, mG. Enstaka hårda stötar.
-//     steer      RMS av vridhastigheten kring lodaxeln, efter att sekundens medel
-//                dragits bort, grader/s. Små snabba styrkorrigeringar, inte kurvor.
-//   Lodaxeln tas från accelerometerns medelvektor (tyngdkraften), så värdena
-//   beror inte på hur klockan sitter på styret eller handleden.
+// Motion sensors (v0.3):
+//   The accelerometer and gyroscope are read at SAMPLE_HZ, in batches of one second.
+//   Each batch becomes three developer fields on the record:
+//     roughness  RMS of |a| around the mean for the second, mG. Shaking from roots/rocks.
+//     jolt       largest deviation of |a| during the second, mG. Single hard jolts.
+//     steer      RMS of the rotation rate around the vertical axis, after subtracting
+//                the mean for the second, degrees/s. Small quick steering corrections, not curves.
+//   The vertical axis is taken from the accelerometer's mean vector (gravity), so the values
+//   do not depend on whether the watch is on the handlebar or on the wrist.
 class MtbSurveyView extends WatchUi.View {
     const SCALE_MIN = 0;
     const SCALE_MAX = 6;
@@ -42,7 +42,7 @@ class MtbSurveyView extends WatchUi.View {
     const FIELD_ID_STEER = 3;
     const TICK_MS = 1000;
     const SAMPLE_HZ = 25;
-    const SENSOR_STALE_S = 3;   // äldre sensorvärden än så skrivs inte
+    const SENSOR_STALE_S = 3;   // sensor values older than this are not written
 
     var _scale = 1;
     var _session = null;
@@ -56,14 +56,14 @@ class MtbSurveyView extends WatchUi.View {
     var _steerField = null;
     var _sensorsOn = false;
     var _hasGyro = false;
-    var _rough = null;       // senaste värden, null = inga data
+    var _rough = null;       // latest values, null = no data
     var _jolt = null;
     var _steer = null;
-    var _sensorAge = 0;      // sekunder sedan senaste paket
+    var _sensorAge = 0;      // seconds since the latest batch
 
     function initialize() { View.initialize(); }
 
-    // ---- Livscykel -------------------------------------------------------
+    // ---- Lifecycle -------------------------------------------------------
 
     function onShow() {
         startGps();
@@ -74,8 +74,8 @@ class MtbSurveyView extends WatchUi.View {
         }
     }
 
-    // Stänger av allt. Anropas från AppBase.onStop(). En session som
-    // fortfarande finns kvar sparas så att inget spår går förlorat.
+    // Turns everything off. Called from AppBase.onStop(). A session that
+    // still exists is saved so that no track is lost.
     function shutdown() {
         if (_timer != null) { _timer.stop(); _timer = null; }
         finishSession();
@@ -85,8 +85,8 @@ class MtbSurveyView extends WatchUi.View {
 
     // ---- GPS -------------------------------------------------------------
 
-    // Slår explicit på kontinuerlig positionering. GPS hålls igång under hela
-    // appens livstid, alltså både före start, under inspelning och i paus.
+    // Explicitly turns on continuous positioning. GPS stays on for the whole
+    // lifetime of the app, that is before start, while recording and when paused.
     function startGps() {
         if (_gpsEnabled) { return; }
         Position.enableLocationEvents(Position.LOCATION_CONTINUOUS, method(:onPosition));
@@ -112,16 +112,16 @@ class MtbSurveyView extends WatchUi.View {
         }
     }
 
-    // true när det finns en riktig, aktuell fix (inte bara "last known").
+    // true when there is a real, current fix (not just "last known").
     function hasGpsFix() {
         return _gpsQuality >= Position.QUALITY_POOR;
     }
 
-    // ---- Rörelsesensorer --------------------------------------------------
+    // ---- Motion sensors ---------------------------------------------------
 
     function startSensors() {
         if (_sensorsOn) { return; }
-        // Puls från klockan samt ANT+-kadens/fart om sådana är parkopplade.
+        // Heart rate from the watch, plus ANT+ cadence/speed if such sensors are paired.
         Sensor.setEnabledSensors([Sensor.SENSOR_ONBOARD_HEARTRATE, Sensor.SENSOR_HEARTRATE,
                                   Sensor.SENSOR_BIKECADENCE, Sensor.SENSOR_BIKESPEED]);
         var acc = { :enabled => true, :sampleRate => SAMPLE_HZ };
@@ -132,7 +132,7 @@ class MtbSurveyView extends WatchUi.View {
             _hasGyro = true;
             _sensorsOn = true;
         } catch (e) {
-            // Utan gyroskop: bara skakningar.
+            // Without a gyroscope: shaking only.
             try {
                 Sensor.registerSensorDataListener(method(:onSensorData),
                     { :period => 1, :accelerometer => acc });
@@ -163,7 +163,7 @@ class MtbSurveyView extends WatchUi.View {
         writeSensors();
     }
 
-    // Skriver senaste sensorvärden till developer fields, som writeScale().
+    // Writes the latest sensor values to the developer fields, like writeScale().
     function writeSensors() {
         if (_session == null || !_session.isRecording() || _sensorAge > SENSOR_STALE_S) { return; }
         if (_roughField != null && _rough != null) { _roughField.setData(_rough); }
@@ -174,8 +174,8 @@ class MtbSurveyView extends WatchUi.View {
     // ---- 1 Hz-tick ---------------------------------------------------------
 
     function onTick() as Void {
-        // Pollar även kvaliteten, ifall positionshändelser uteblir när
-        // mottagningen försvinner. Då ska statusen falla tillbaka till WAIT GPS.
+        // Also polls the quality, in case position events stop arriving when
+        // reception is lost. The status should then fall back to WAIT GPS.
         var info = Position.getInfo();
         if (info != null) { setGpsQuality(info.accuracy); }
         writeScale();
@@ -184,15 +184,15 @@ class MtbSurveyView extends WatchUi.View {
         if (_session != null && _session.isRecording()) { WatchUi.requestUpdate(); }
     }
 
-    // Skriver det aktuella tillståndet till developer field. Anropas i takt
-    // med FIT-records (1 Hz + positionshändelser), inte bara vid knapptryck.
+    // Writes the current state to the developer field. Called in step
+    // with the FIT records (1 Hz + position events), not only on button presses.
     function writeScale() {
         if (_scaleField != null && _session != null && _session.isRecording()) {
             _scaleField.setData(_scale);
         }
     }
 
-    // ---- Knappåtgärder -----------------------------------------------------
+    // ---- Button actions ----------------------------------------------------
 
     function changeScale(delta) {
         var n = _scale + delta;
@@ -207,7 +207,7 @@ class MtbSurveyView extends WatchUi.View {
 
     function toggleRecording() {
         if (_session == null) {
-            // START: skapa session och developer field, börja spela in.
+            // START: create the session and developer fields, start recording.
             _session = ActivityRecording.createSession({
                 :name => "MTB Survey",
                 :sport => Activity.SPORT_CYCLING,
@@ -232,11 +232,11 @@ class MtbSurveyView extends WatchUi.View {
             writeSensors();
             vibrate(100, 300);
         } else if (_session.isRecording()) {
-            // PAUS
+            // PAUSE
             _session.stop();
             vibrate(60, 150);
         } else {
-            // ÅTERUPPTA: skriv värdet direkt så första record efter paus är rätt.
+            // RESUME: write the value immediately so the first record after the pause is correct.
             _session.start();
             writeScale();
             vibrate(100, 300);
@@ -244,7 +244,7 @@ class MtbSurveyView extends WatchUi.View {
         WatchUi.requestUpdate();
     }
 
-    // STOP: stoppa, spara FIT-aktiviteten och avsluta appen.
+    // STOP: stop, save the FIT activity and exit the app.
     function saveAndExit() {
         if (_session != null) { vibrate(100, 500); }
         finishSession();
@@ -281,7 +281,7 @@ class MtbSurveyView extends WatchUi.View {
         dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(cx, h * 7 / 100, Graphics.FONT_SMALL, "MTB SURVEY", Graphics.TEXT_JUSTIFY_CENTER);
 
-        // GPS-status: alltid synlig, även under inspelning.
+        // GPS status: always visible, also while recording.
         var gpsText = "WAIT GPS";
         var gpsColor = Graphics.COLOR_RED;
         if (_gpsQuality >= Position.QUALITY_USABLE) {
@@ -313,7 +313,7 @@ class MtbSurveyView extends WatchUi.View {
         dc.setColor(recColor, Graphics.COLOR_TRANSPARENT);
         dc.drawText(cx, h * 71 / 100, Graphics.FONT_SMALL, recText, Graphics.TEXT_JUSTIFY_CENTER);
 
-        // Under inspelning: levande sensorvärden, så att man ser att de kommer in.
+        // While recording: live sensor values, so you can see that they are coming in.
         var hint = "UP harder  DOWN easier";
         if (_session != null && _session.isRecording()) {
             if (_rough == null || _sensorAge > SENSOR_STALE_S) {
@@ -328,9 +328,9 @@ class MtbSurveyView extends WatchUi.View {
     }
 }
 
-// Ren beräkning, fri från sensor-API:t så att den går att enhetstesta.
-// ax/ay/az i mG, wx/wy/wz i grader/s (null = inget gyroskop).
-// Returnerar [roughness, jolt, steer]; steer är null utan gyroskop.
+// Pure calculation, independent of the sensor API so that it can be unit tested.
+// ax/ay/az in mG, wx/wy/wz in degrees/s (null = no gyroscope).
+// Returns [roughness, jolt, steer]; steer is null without a gyroscope.
 function motionMetrics(ax, ay, az, wx, wy, wz) {
     var n = ax.size();
     var gx = 0.0, gy = 0.0, gz = 0.0, mean = 0.0;
@@ -355,7 +355,7 @@ function motionMetrics(ax, ay, az, wx, wy, wz) {
         var yaw = new [m];
         var ym = 0.0;
         for (var i = 0; i < m; i++) {
-            // vridning kring tyngdkraftens riktning = styrrörelse
+            // rotation around the direction of gravity = steering movement
             yaw[i] = (wx[i] * gx + wy[i] * gy + wz[i] * gz) / gn;
             ym += yaw[i];
         }

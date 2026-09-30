@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Gör en färgkodad karta av en FIT-fil från MTB Survey.
+"""Make a colour-coded map of a FIT file from MTB Survey.
 
-Spåret delas i segment där mtb_scale är konstant. Resultat:
-  <namn>.html     fristående Leaflet-karta (kräver internet för kartbilderna)
-  <namn>.geojson  ett LineString per segment med egenskapen "mtb:scale" (för JOSM/QGIS)
-  <namn>_stigsegment.geojson  ett objekt per stig mellan två korsningar (OSM-way-del), med
-                  det sammanvägda värdet. Kräver internet (Overpass) första gången, se trailsegments.py.
+The track is split into segments where mtb_scale is constant. Output:
+  <name>.html     standalone Leaflet map (needs internet for the map tiles)
+  <name>.geojson  one LineString per segment with the property "mtb:scale" (for JOSM/QGIS)
+  <name>_trails.geojson  one feature per trail between two junctions (part of an OSM way), with
+                  the combined value. Needs internet (Overpass) the first time, see trailsegments.py.
 
-Användning:  python3 tools/fitmap.py aktivitet.fit [utmapp] [--site mapp] [--no-osm] [--mount arm|styre]
+Usage:  python3 tools/fitmap.py activity.fit [outdir] [--site dir] [--no-osm] [--mount wrist|handlebar]
 
---no-osm hoppar över stigsegmenten (ingen Overpass-fråga).
---mount arm|styre   anger var klockan satt för hela passet. Utan flaggan avgörs det från pulsen.
---osm-client-id ID  slår på skrivning av mtb:scale till OSM från kartsidan (OAuth 2, PKCE).
---osm-api URL       OSM-server för inloggning och skrivning, standard https://www.openstreetmap.org.
-                    Testservern är https://master.apis.dev.openstreetmap.org (egen app-registrering).
+--no-osm skips the trail segments (no Overpass query).
+--mount wrist|handlebar  says where the watch was for the whole ride. Without the flag it is decided from the heart rate.
+--osm-client-id ID  enables writing mtb:scale to OSM from the map page (OAuth 2, PKCE).
+--osm-api URL       OSM server for login and writing, default https://www.openstreetmap.org.
+                    The test server is https://master.apis.dev.openstreetmap.org (separate app registration).
 
---site skriver dessutom en mapp för webbhotell: index.html, style.css, app.js
-och leaflet/ lokalt. Ingen css eller js ligger inbäddad i html-filen och inga
-style-attribut används, så sidan fungerar under en strikt Content Security
+--site also writes a directory for a web host: index.html, style.css, app.js
+and leaflet/ locally. No css or js is embedded in the html file and no
+style attributes are used, so the page works under a strict Content Security
 Policy (style-src 'self'; script-src 'self').
 """
 import hashlib, json, math, os, shutil, sys
@@ -29,7 +29,7 @@ import trailanalysis
 import trailsegments
 
 FIT_EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
-# Ordinal ramp, ljus -> mörk, validerad med dataviz-skillens validate_palette.js --ordinal
+# Ordinal ramp, light -> dark, validated with the dataviz skill's validate_palette.js --ordinal
 RAMP = ['#f0a30a', '#e8601c', '#d42a4f', '#a21d86', '#6a1f9c', '#33257a', '#130d2b']
 
 
@@ -40,11 +40,11 @@ def dist_m(a, b):
 
 
 def build_segments(rows):
-    """Segment = följd av records med samma mtb_scale. Bryts även vid paus."""
+    """Segment = run of records with the same mtb_scale. Also broken at pauses."""
     segs, cur, broken = [], None, True
     for kind, m, dev in rows:
         if kind == 'event' and m.get('event') == 0 and m.get('type') in (1, 4):
-            broken = True               # timer stop: dra ingen linje över pausen
+            broken = True               # timer stop: draw no line across the pause
             continue
         if kind != 'record' or m['lat'] is None or m['lon'] is None:
             continue
@@ -54,8 +54,8 @@ def build_segments(rows):
             continue
         pt = (m['lat'], m['lon'], m['ts'])
         if cur is not None and not broken and scale != cur['scale']:
-            # Värdet byttes mellan två records. Sträckan fram till den nya punkten
-            # hör till det gamla värdet, så linjerna hänger ihop utan glapp.
+            # The value changed between two records. The stretch up to the new point
+            # belongs to the old value, so the lines join up without gaps.
             cur['pts'].append(pt)
         if cur is None or broken or scale != cur['scale']:
             cur = {'scale': scale, 'pts': []}
@@ -72,16 +72,16 @@ def build_segments(rows):
     return out
 
 
-STEP_M = 5          # profilen samplas om var 5:e meter längs spåret
-MIN_GRADE = 8.0     # procent; brantare än så räknas som brant backe
-MIN_LEN_M = 20      # kortare branta partier än så ignoreras
-MIN_DH_M = 3        # ... liksom de med mindre höjdskillnad
+STEP_M = 5          # the profile is resampled every 5 m along the track
+MIN_GRADE = 8.0     # percent; steeper than this counts as a steep slope
+MIN_LEN_M = 20      # steep stretches shorter than this are ignored
+MIN_DH_M = 3        # ... as are those with less elevation difference
 
 
 def build_profile(rows):
-    """Höjd mot sträcka, omsamplad till STEP_M. Varje punkt:
-    [d, alt, lutning %, lat, lon, scale, ts, fart km/h, roughness, steer, kadens]
-    (index 6- används av trailanalysis; kartsidan läser bara 0-5)."""
+    """Elevation against distance, resampled to STEP_M. Each point:
+    [d, alt, grade %, lat, lon, scale, ts, speed km/h, roughness, steer, cadence]
+    (index 6+ is used by trailanalysis; the map page only reads 0-5)."""
     recs, d_calc, prev = [], 0.0, None
     for kind, m, dev in rows:
         if kind != 'record' or m['lat'] is None or m.get('alt') is None:
@@ -91,7 +91,7 @@ def build_profile(rows):
         prev = (m['lat'], m['lon'])
         d = m['dist'] if m.get('dist') is not None else d_calc
         if recs and d <= recs[-1][0]:
-            continue                    # stillastående: samma sträcka, hoppa över
+            continue                    # standing still: same distance, skip
         recs.append((d, m['alt'], m['lat'], m['lon'], dev.get('mtb_scale'), m['ts'],
                      None if m.get('speed') is None else m['speed'] * 3.6,
                      dev.get('roughness'), dev.get('steer'), m.get('cad')))
@@ -107,7 +107,7 @@ def build_profile(rows):
         grid.append([d - recs[0][0], a[1] + f * (b[1] - a[1]), a[2] + f * (b[2] - a[2]),
                      a[3] + f * (b[3] - a[3]), near[4], a[5] + f * (b[5] - a[5])] + list(near[6:]))
         d += STEP_M
-    n, k = len(grid), 2                 # glidande medel ±2 sampel (~25 m) mot brus
+    n, k = len(grid), 2                 # moving average ±2 samples (~25 m) against noise
     smooth = [sum(g[1] for g in grid[max(0, i - k):i + k + 1]) / len(grid[max(0, i - k):i + k + 1])
               for i in range(n)]
     out = []
@@ -121,13 +121,13 @@ def build_profile(rows):
 
 
 def find_hills(prof):
-    """Sammanhängande partier där lutningen är minst MIN_GRADE i samma riktning."""
+    """Continuous stretches where the grade is at least MIN_GRADE in the same direction."""
     sign = [(1 if p[2] >= MIN_GRADE else -1 if p[2] <= -MIN_GRADE else 0) for p in prof]
     runs = []
     for i, s in enumerate(sign):
         if s == 0:
             continue
-        if runs and runs[-1][0] == s and i - runs[-1][2] <= 3:   # glapp ≤ 10 m slås ihop
+        if runs and runs[-1][0] == s and i - runs[-1][2] <= 3:   # gaps ≤ 10 m are merged
             runs[-1][2] = i
         else:
             runs.append([s, i, i])
@@ -139,7 +139,7 @@ def find_hills(prof):
             continue
         part = prof[a:b + 1]
         scales = [p[5] for p in part if p[5] is not None]
-        hills.append({'id': len(hills) + 1, 'dir': 'upp' if s > 0 else 'ned',
+        hills.append({'id': len(hills) + 1, 'dir': 'up' if s > 0 else 'down',
                       'start_d': prof[a][0], 'end_d': prof[b][0], 'length_m': length,
                       'dh': round(dh, 1), 'avg': round(100 * dh / length, 1),
                       'max': max(abs(p[2]) for p in part) * s,
@@ -166,7 +166,7 @@ def to_geojson(segs):
 
 
 HTML = r"""<!doctype html>
-<html lang="sv"><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MTB Survey – __TITLE__</title>
 <link rel="stylesheet" href="__LEAFLET_CSS__">
@@ -187,8 +187,8 @@ HTML = r"""<!doctype html>
   .seglabel { background:#fff; color:var(--ink); border:2px solid; border-radius:10px; font-weight:700; font-size:12px;
               line-height:16px; min-width:20px; height:20px; text-align:center; padding:0 4px; box-shadow:0 1px 2px rgba(0,0,0,.3); }
   .tablewrap { overflow-x:auto; margin-top:16px; }
-  /* Rubrikraden ligger fast under kartan. Det kräver att omslaget inte scrollar i sidled,
-     så på smala skärmar behålls sidscrollen i stället. */
+  /* The header row sticks below the map. That requires the wrapper not to scroll sideways,
+     so on narrow screens the sideways scroll is kept instead. */
   thead th { position:sticky; top:var(--stickh, 0px); z-index:500; background:var(--surface); box-shadow:inset 0 -1px 0 var(--hair); }
   @media (min-width: 960px) { .tablewrap { overflow:visible; } }
   table { border-collapse:collapse; width:100%; min-width:520px; background:var(--surface); border:1px solid var(--hair); border-radius:8px; }
@@ -236,44 +236,44 @@ __COLORCSS__
 <h1>MTB Survey – __TITLE__</h1>
 <p class="sub" id="sub"></p>
 <div class="stick">
-<div id="map" role="img" aria-label="Karta över spåret, färgkodat efter mtb:scale. Samma data finns i tabellen nedan."></div>
-<div class="legend"><span class="mode" role="group" aria-label="Färglägg spåret efter">
-  <button type="button" data-mode="auto" aria-pressed="true">Automatisk</button><button type="button" data-mode="manual" aria-pressed="false">Din bedömning</button><button type="button" data-mode="osm" aria-pressed="false">Mot OSM</button></span>
+<div id="map" role="img" aria-label="Map of the track, colour-coded by mtb:scale. The same data is in the table below."></div>
+<div class="legend"><span class="mode" role="group" aria-label="Colour the track by">
+  <button type="button" data-mode="auto" aria-pressed="true">Automatic</button><button type="button" data-mode="manual" aria-pressed="false">Your assessment</button><button type="button" data-mode="osm" aria-pressed="false">vs OSM</button></span>
   <span id="legend" class="legend"></span></div>
 </div>
 <section id="profsec">
-<h2>Höjdprofil</h2>
-<div id="prof" role="img" aria-label="Höjdprofil mot sträcka. Linjen är färgad efter mtb:scale, grå band är branta backar. Samma backar finns i tabellen nedan."><svg></svg><div class="tip"></div></div>
-<h2>Branta backar <span class="h2sub">(minst __MINGRADE__ % lutning över minst __MINLEN__ m)</span></h2>
-<div class="tablewrap"><table><thead><tr><th></th><th>Riktning</th><th>Vid</th><th>Längd</th><th>Höjdskillnad</th><th>Snitt</th><th>Max</th><th>mtb:scale</th></tr></thead><tbody id="hills"></tbody></table></div>
+<h2>Elevation profile</h2>
+<div id="prof" role="img" aria-label="Elevation profile against distance. The line is coloured by mtb:scale, grey bands are steep slopes. The same slopes are in the table below."><svg></svg><div class="tip"></div></div>
+<h2>Steep slopes <span class="h2sub">(at least __MINGRADE__ % grade over at least __MINLEN__ m)</span></h2>
+<div class="tablewrap"><table><thead><tr><th></th><th>Direction</th><th>At</th><th>Length</th><th>Elevation diff.</th><th>Average</th><th>Max</th><th>mtb:scale</th></tr></thead><tbody id="hills"></tbody></table></div>
 </section>
 <section id="autosec">
-<h2>Automatisk bedömning <span class="h2sub">(sektioner om __SECM__ m, sensorvärden utjämnade över __SMOOTHM__ m, gränser kalibrerade 2026-09-30)</span></h2>
-<div class="tablewrap"><table><thead><tr><th>Nivå</th><th>Längd</th><th>Andel</th><th>Vanligaste skäl</th></tr></thead><tbody id="autosum"></tbody></table></div>
+<h2>Automatic assessment <span class="h2sub">(sections of __SECM__ m, sensor values smoothed over __SMOOTHM__ m, limits calibrated 2026-09-30)</span></h2>
+<div class="tablewrap"><table><thead><tr><th>Level</th><th>Length</th><th>Share</th><th>Most common reasons</th></tr></thead><tbody id="autosum"></tbody></table></div>
 <p class="note" id="mountnote"></p>
-<h2>Långa backar <span class="h2sub">(sammanhängande stigning, minst __LONGGAIN__ m upp över minst __LONGLEN__ m)</span></h2>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>Vid</th><th>Längd</th><th>Stigning</th><th>Snitt</th></tr></thead><tbody id="climbs"></tbody></table></div>
-<h2>Mätvärden per mtb:scale <span class="h2sub">(median per sektion, för att kalibrera gränserna)</span></h2>
+<h2>Long climbs <span class="h2sub">(continuous ascent, at least __LONGGAIN__ m up over at least __LONGLEN__ m)</span></h2>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>At</th><th>Length</th><th>Ascent</th><th>Average</th></tr></thead><tbody id="climbs"></tbody></table></div>
+<h2>Measurements per mtb:scale <span class="h2sub">(median per section, for calibrating the limits)</span></h2>
 <div class="tablewrap"><table><thead id="calhead"></thead><tbody id="cal"></tbody></table></div>
-<p class="note">Stämmer mätvärdena med din bedömning ska de öka från rad till rad. Gränserna står i <code>LIMITS</code> och <code>MOUNT_LIMITS</code> i <code>tools/trailanalysis.py</code>.</p>
+<p class="note">If the measurements agree with your assessment, they should increase from row to row. The limits are in <code>LIMITS</code> and <code>MOUNT_LIMITS</code> in <code>tools/trailanalysis.py</code>.</p>
 </section>
 <section id="osmsec">
-<h2>Jämförelse med OSM <span class="h2sub">(en rad per cyklad OSM-way, ditt sammanvägda värde mot taggen mtb:scale i OSM)</span></h2>
+<h2>Comparison with OSM <span class="h2sub">(one row per ridden OSM way, your combined value against the mtb:scale tag in OSM)</span></h2>
 <p class="note" id="osmsum"></p>
 <p class="note" id="osmauth"></p>
-<div class="tablewrap"><table><thead><tr><th>OSM-way</th><th>Stig</th><th>Cyklat</th><th>OSM idag</th><th>Din</th><th>Automatisk</th><th>Avvikelse</th><th>Underlag i OSM</th><th>Skriv till OSM</th></tr></thead><tbody id="osmrows"></tbody></table></div>
-<p class="note">Knapparna <i>0 1 2 3</i> skriver valt värde som <code>mtb:scale</code> på hela wayen i OSM, i ett eget changeset, efter inloggning och ett andra tryck för att bekräfta. Ditt eget värde har fet ram. Värdet som redan finns i OSM är mörkt ifyllt och går inte att välja. Har OSM ett annat värde, till exempel <code>2+</code>, står det före knapparna. Knapparna visas bara för stigar (path, track, footway, bridleway). Tagga inte en way som ska delas förrän den är delad. Avvikelsen jämför ditt värde med OSM siffra mot siffra. <b>Dela</b> betyder att delarna mellan korsningarna fått olika värden av dig, så wayen bör delas i OSM innan den taggas. Sådana ways visar sina delar som indragna rader. Klick på en rad visar wayen på kartan.</p>
+<div class="tablewrap"><table><thead><tr><th>OSM way</th><th>Trail</th><th>Ridden</th><th>OSM today</th><th>Yours</th><th>Automatic</th><th>Difference</th><th>Tags in OSM</th><th>Write to OSM</th></tr></thead><tbody id="osmrows"></tbody></table></div>
+<p class="note">The buttons <i>0 1 2 3</i> write the chosen value as <code>mtb:scale</code> on the whole way in OSM, in a changeset of its own, after login and a second press to confirm. Your own value has a bold border. The value already in OSM is filled dark and cannot be chosen. If OSM has some other value, for example <code>2+</code>, it is shown before the buttons. The buttons are only shown for trails (path, track, footway, bridleway). Do not tag a way that should be split until it has been split. The difference compares your value with OSM digit by digit. <b>Split</b> means you gave the parts between the junctions different values, so the way should be split in OSM before it is tagged. Such ways show their parts as indented rows. Clicking a row shows the way on the map.</p>
 </section>
 <section id="trailsec">
-<h2>Stigsegment <span class="h2sub">(hela stigen mellan två korsningar i OSM får det högsta värde som förekommer minst __MINRUN__ m i följd)</span></h2>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>Stig</th><th>OSM-way</th><th>Längd</th><th>Cyklat</th><th>Din</th><th>Automatisk</th><th>OSM idag</th></tr></thead><tbody id="trailrows"></tbody></table></div>
-<p class="note">Din och Automatisk är segmentets sammanvägda värde, med de meter som motiverar det inom parentes. Kryssa i <i>stigsegment</i> ovanför kartan för att se dem. Rader utan OSM-way är partier där ingen väg fanns inom __MATCHM__ m.</p>
+<h2>Trail segments <span class="h2sub">(the whole trail between two junctions in OSM gets the highest value that occurs for at least __MINRUN__ m in a row)</span></h2>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Trail</th><th>OSM way</th><th>Length</th><th>Ridden</th><th>Yours</th><th>Automatic</th><th>OSM today</th></tr></thead><tbody id="trailrows"></tbody></table></div>
+<p class="note">Yours and Automatic are the combined value of the segment, with the metres that justify it in parentheses. Tick <i>trail segments</i> above the map to see them. Rows without an OSM way are stretches with no way within __MATCHM__ m.</p>
 </section>
-<h2>Segment</h2>
-<div class="tablewrap"><table><thead><tr><th>#</th><th>mtb:scale</th><th>Längd</th><th>Tid</th><th>Start</th><th>Punkter</th></tr></thead><tbody id="rows"></tbody></table></div>
-<h2>Summa per värde</h2>
-<div class="tablewrap"><table><thead><tr><th>mtb:scale</th><th>Längd</th><th>Andel</th><th>Segment</th></tr></thead><tbody id="sum"></tbody></table></div>
-<p class="note">Kartbilder © OpenStreetMap-bidragsgivare. Filen innehåller dina GPS-positioner, så dela den bara med dem som får se var du har varit.</p>
+<h2>Segments</h2>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>mtb:scale</th><th>Length</th><th>Time</th><th>Start</th><th>Points</th></tr></thead><tbody id="rows"></tbody></table></div>
+<h2>Total per value</h2>
+<div class="tablewrap"><table><thead><tr><th>mtb:scale</th><th>Length</th><th>Share</th><th>Segments</th></tr></thead><tbody id="sum"></tbody></table></div>
+<p class="note">Map tiles © OpenStreetMap contributors. The file contains your GPS positions, so only share it with people who may see where you have been.</p>
 </div>
 <script id="osmedit">
 __OSMEDIT__
@@ -283,31 +283,31 @@ const SEGS = __SEGS__, RAMP = __RAMP__, EPOCH = Date.UTC(1989, 11, 31);
 const PROF = __PROF__, HILLS = __HILLS__, STEP = __STEP__, AUTO = __AUTO__, TRAILS = __TRAILS__;
 const OSMCFG = __OSMCFG__, OSM_EDITABLE = __OSMEDITABLE__;
 let trailsOn = false;
-const LVLC = ['#0ca30c', '#fab219', '#d03b3b'];   // dataviz-statuspalett: good / warning / critical, alltid med text
+const LVLC = ['#0ca30c', '#fab219', '#d03b3b'];   // dataviz status palette: good / warning / critical, always with text
 const PER = AUTO ? AUTO.section_m / STEP : 1;
-let mode = 'manual';  // PROF: [d, höjd, lutning %, lat, lon, scale]
+let mode = 'manual';  // PROF: [d, elevation, grade %, lat, lon, scale]
 const fmtLen = m => m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(0) + ' m';
 const fmtDur = s => s >= 60 ? Math.floor(s / 60) + ' min ' + (s % 60) + ' s' : s + ' s';
-const fmtTime = ts => new Date(EPOCH + ts * 1000).toLocaleTimeString('sv-SE');
-const fmtDate = ts => new Date(EPOCH + ts * 1000).toLocaleDateString('sv-SE');
+const fmtTime = ts => new Date(EPOCH + ts * 1000).toLocaleTimeString('en-GB');
+const fmtDate = ts => new Date(EPOCH + ts * 1000).toLocaleDateString('en-CA');
 
 const map = L.map('map', { maxZoom: 22 });
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   { maxNativeZoom: 19, maxZoom: 22, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
 
-// Branta backar: färgad halo under spåret, röd uppför och grön nedför, i en egen pane under linjerna
-const HILLC = { upp: '#d03b3b', ned: '#0ca30c' };
+// Steep slopes: coloured halo under the track, red uphill and green downhill, in a pane of its own below the lines
+const HILLC = { up: '#d03b3b', down: '#0ca30c' };
 map.createPane('hills').style.zIndex = 390;
 const hillLayer = L.featureGroup().addTo(map), hillLayers = {};
-const fmtPct = v => (v > 0 ? '+' : '') + v.toFixed(1).replace('.', ',') + ' %';
-const arrow = h => h.dir === 'upp' ? '▲' : '▼';
+const fmtPct = v => (v > 0 ? '+' : '') + v.toFixed(1) + ' %';
+const arrow = h => h.dir === 'up' ? '▲' : '▼';
 HILLS.forEach(h => {
-  const tip = `<b>${arrow(h)} ${h.dir}för</b><br>${fmtLen(h.length_m)} · ${h.dh > 0 ? '+' : ''}${h.dh.toFixed(1)} m<br>snitt ${fmtPct(h.avg)} · max ${fmtPct(h.max)}`;
+  const tip = `<b>${arrow(h)} ${h.dir}hill</b><br>${fmtLen(h.length_m)} · ${h.dh > 0 ? '+' : ''}${h.dh.toFixed(1)} m<br>average ${fmtPct(h.avg)} · max ${fmtPct(h.max)}`;
   const g = L.featureGroup().addTo(hillLayer);
   L.polyline(h.coords, { pane: 'hills', color: HILLC[h.dir], weight: 20, opacity: .45, lineCap: 'round', lineJoin: 'round' })
     .addTo(g).bindTooltip(tip, { sticky: true });
   L.marker(h.coords[0], { icon: L.divIcon({ className: '', iconSize: null, iconAnchor: [-8, 22],
-    html: `<div class="hilllabel ${h.dir === 'upp' ? 'up' : 'down'}">${arrow(h)} ${Math.abs(h.max).toFixed(0)} %</div>` }) }).addTo(g).bindTooltip(tip);
+    html: `<div class="hilllabel ${h.dir}">${arrow(h)} ${Math.abs(h.max).toFixed(0)} %</div>` }) }).addTo(g).bindTooltip(tip);
   g.on('mouseover', () => { hlHill(h.id, true); }); g.on('mouseout', () => { hlHill(h.id, false); });
   hillLayers[h.id] = g;
 });
@@ -318,9 +318,9 @@ SEGS.forEach(s => {
   const tip = `<b>mtb:scale ${s.scale}</b><br>${fmtLen(s.length_m)} · ${fmtDur(s.end_ts - s.start_ts)}<br>${fmtTime(s.start_ts)}–${fmtTime(s.end_ts)}`;
   const g = L.featureGroup().addTo(manualLayer);
   if (s.coords.length > 1) {
-    L.polyline(s.coords, { color: '#fff', weight: 9, opacity: .95, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(g); // vit kant
+    L.polyline(s.coords, { color: '#fff', weight: 9, opacity: .95, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(g); // white edge
     const line = L.polyline(s.coords, { color, weight: 5, opacity: 1, lineCap: 'round', lineJoin: 'round' }).addTo(g);
-    L.polyline(s.coords, { color, weight: 22, opacity: 0 }).addTo(g).bindTooltip(tip, { sticky: true });          // stor träffyta
+    L.polyline(s.coords, { color, weight: 22, opacity: 0 }).addTo(g).bindTooltip(tip, { sticky: true });          // large hit area
     g.on('mouseover', () => { line.setStyle({ weight: 8 }); hl(s.id, true); });
     g.on('mouseout', () => { line.setStyle({ weight: 5 }); hl(s.id, false); });
   }
@@ -332,11 +332,11 @@ SEGS.forEach(s => {
 if (all.length) {
   map.fitBounds(L.latLngBounds(all).pad(0.25), { maxZoom: 21 });
   L.circleMarker(all[0], { radius: 6, color: '#fff', weight: 2, fillColor: '#0b0b0b', fillOpacity: 1 }).addTo(map).bindTooltip('Start');
-  L.circleMarker(all[all.length - 1], { radius: 6, color: '#0b0b0b', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(map).bindTooltip('Slut');
+  L.circleMarker(all[all.length - 1], { radius: 6, color: '#0b0b0b', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(map).bindTooltip('End');
 } else { map.setView([62, 15], 5); }
 
-// Automatiskt lager: en linje per sektion, färg efter nivå.
-// s.level/s.why sätts från varianten utan (0) eller med (1) kurvighet.
+// Automatic layer: one line per section, coloured by level.
+// s.level/s.why are set from the variant without (0) or with (1) curviness.
 const autoLayer = L.featureGroup();
 function applyVariant(v) {
   AUTO.sections.forEach(s => { s.level = s.lv[v]; s.why = s.whys[v]; });
@@ -345,46 +345,46 @@ function applyVariant(v) {
 function renderAutoLayer() {
 autoLayer.clearLayers();
 AUTO.sections.forEach(s => {
-  const tip = `<b>${AUTO.levels[s.level]}</b> · ${(s.start_d / 1000).toFixed(2).replace('.', ',')} km` +
+  const tip = `<b>${AUTO.levels[s.level]}</b> · ${(s.start_d / 1000).toFixed(2)} km` +
     (s.why.length ? `<br>${s.why.join(', ')}` : '') +
-    (s.mount === 'arm' ? '<br><i>klockan på armen</i>' : '') +
-    `<br><span class="dim">fart ${s.speed ?? '–'} km/h` + (s.v_rel != null ? ` (${Math.round(100 * s.v_rel)} % av vägfarten)` : '') + ` · max ${s.grade.toFixed(0)} % · kurv ${s.curv}°/100 m` +
-    (s.roughness != null ? ` · skak ${s.roughness}` : '') + (s.steer != null ? ` · styr ${s.steer}` : '') +
-    (s.scale != null ? ` · din: ${s.scale}` : '') + '</span>';
+    (s.mount === 'wrist' ? '<br><i>watch on the wrist</i>' : '') +
+    `<br><span class="dim">speed ${s.speed ?? '–'} km/h` + (s.v_rel != null ? ` (${Math.round(100 * s.v_rel)} % of road speed)` : '') + ` · max ${s.grade.toFixed(0)} % · curv ${s.curv}°/100 m` +
+    (s.roughness != null ? ` · shake ${s.roughness}` : '') + (s.steer != null ? ` · steer ${s.steer}` : '') +
+    (s.scale != null ? ` · yours: ${s.scale}` : '') + '</span>';
   s.tip = tip;
 });
-// alla vita kanter först, sedan färgerna, annars skär kanterna av grannsektionerna
+// all white edges first, then the colours, otherwise the edges cut off the neighbouring sections
 AUTO.sections.forEach(s => L.polyline(s.coords, { color: '#fff', weight: 9, opacity: .95, lineCap: 'round', interactive: false }).addTo(autoLayer));
-// sektioner mätta med klockan på armen streckas: osäkrare bedömning
-AUTO.sections.forEach(s => L.polyline(s.coords, { color: LVLC[s.level], weight: 5, opacity: 1, lineCap: s.mount === 'arm' ? 'butt' : 'round',
-  dashArray: s.mount === 'arm' ? '8 5' : null, interactive: false }).addTo(autoLayer));
+// sections measured with the watch on the wrist are dashed: less certain assessment
+AUTO.sections.forEach(s => L.polyline(s.coords, { color: LVLC[s.level], weight: 5, opacity: 1, lineCap: s.mount === 'wrist' ? 'butt' : 'round',
+  dashArray: s.mount === 'wrist' ? '8 5' : null, interactive: false }).addTo(autoLayer));
 AUTO.sections.forEach(s => L.polyline(s.coords, { weight: 22, opacity: 0 }).addTo(autoLayer).bindTooltip(s.tip, { sticky: true }));
 }
 if (AUTO) { applyVariant(AUTO.use_curv ? 1 : 0); renderAutoLayer(); }
-// Stigsegment: hela OSM-segmentet mellan två korsningar, färgat efter sammanvägt värde
+// Trail segments: the whole OSM segment between two junctions, coloured by combined value
 const trailLayer = L.featureGroup(), trailLabels = L.featureGroup(), trailLines = [], trailGroups = {}, trailLineById = {};
 const trailVal = t => mode === 'auto' ? t.level : t.scale;
-const DIFFC = { saknas: '#898781', lika: '#0ca30c', 'osm_lägre': '#2f6fdd', 'osm_högre': '#d03b3b' };
-const DIFFN = { saknas: 'saknas i OSM', lika: 'lika', 'osm_lägre': 'OSM lägre än du', 'osm_högre': 'OSM högre än du' };
-const dcls = d => 'df-' + (d ? d.replace('ä', 'a').replace('ö', 'o') : 'none');
+const DIFFC = { missing: '#898781', equal: '#0ca30c', osm_lower: '#2f6fdd', osm_higher: '#d03b3b' };
+const DIFFN = { missing: 'missing in OSM', equal: 'equal', osm_lower: 'OSM lower than yours', osm_higher: 'OSM higher than yours' };
+const dcls = d => 'df-' + (d || 'none');
 const diffCell = d => d ? `<span class="key"><span class="sw ${dcls(d)}"></span>${DIFFN[d]}</span>` : '–';
 const trailColor = t => {
   if (mode === 'osm') return DIFFC[t.diff] || '#c9c8c1';
   const v = trailVal(t); return v == null ? '#52514e' : (mode === 'auto' ? LVLC[v] : RAMP[v]); };
 const osmTags = t => Object.entries(t.tags || {}).map(([k, v]) => `${k}=${v}`).join(' · ');
-const trailName = t => t.name || (t.highway ? { path: 'stig', track: 'skogsväg', footway: 'gångväg', cycleway: 'cykelväg',
-  service: 'serviceväg', residential: 'gata', unclassified: 'väg', steps: 'trappa' }[t.highway] || t.highway : 'utanför OSM-nätet');
+const trailName = t => t.name || (t.highway ? { path: 'trail', track: 'forest road', footway: 'footpath', cycleway: 'cycle path',
+  service: 'service road', residential: 'street', unclassified: 'road', steps: 'steps' }[t.highway] || t.highway : 'outside the OSM network');
 function trailTip(t) {
   if (mode === 'osm') return `<b>${trailName(t)}</b>` + (t.way ? ` · way ${t.way}` : '') +
-    `<br>${t.way ? (DIFFN[t.diff] || 'ingen egen bedömning') : 'utanför OSM-nätet'}` +
-    `<br><span class="dim">OSM idag ${t.osm_scale ?? '–'} · din ${t.scale ?? '–'}` + (t.level != null ? ` · auto ${t.level}` : '') +
+    `<br>${t.way ? (DIFFN[t.diff] || 'no assessment of yours') : 'outside the OSM network'}` +
+    `<br><span class="dim">OSM today ${t.osm_scale ?? '–'} · yours ${t.scale ?? '–'}` + (t.level != null ? ` · auto ${t.level}` : '') +
     (osmTags(t) ? `<br>${osmTags(t)}` : '') + '</span>';
   const v = trailVal(t), basis = mode === 'auto' ? t.level_m : t.scale_m;
   return `<b>${trailName(t)}</b>` + (t.way ? ` · way ${t.way}` : '') +
     `<br>${mode === 'auto' ? (v == null ? '–' : AUTO.levels[v]) : 'mtb:scale ' + (v ?? '–')}` +
-    (v != null ? ` <span class="dim">(${basis} m i följd)</span>` : '') +
-    `<br><span class="dim">${fmtLen(t.length_m)} stig · cyklat ${fmtLen(t.covered_m)}${t.passes > 1 ? ' i ' + t.passes + ' pass' : ''}` +
-    (t.osm_scale != null ? ` · OSM idag ${t.osm_scale}` : '') + '</span>';
+    (v != null ? ` <span class="dim">(${basis} m in a row)</span>` : '') +
+    `<br><span class="dim">${fmtLen(t.length_m)} trail · ridden ${fmtLen(t.covered_m)}${t.passes > 1 ? ' in ' + t.passes + ' passes' : ''}` +
+    (t.osm_scale != null ? ` · OSM today ${t.osm_scale}` : '') + '</span>';
 }
 if (TRAILS) TRAILS.segments.forEach(t => {
   const g = L.featureGroup().addTo(trailLayer);
@@ -398,8 +398,8 @@ if (TRAILS) TRAILS.segments.forEach(t => {
     html: `<div class="seglabel sc${t.scale}">${t.scale ?? '–'}</div>` }) }).addTo(trailLabels).bindTooltip(() => trailTip(t));
   trailLines.push([t, line]); trailGroups[t.id] = g; trailLineById[t.id] = line;
 });
-// Rader i OSM-tabellen som hör till segmentet: wayens rad och delens rad. Scrollar raden i sikte,
-// kartan ligger fast så sidan under den får röra sig.
+// Rows in the OSM table that belong to the segment: the way's row and the part's row. Scrolls the row into view;
+// the map is sticky, so the page below it may move.
 function hlRows(t, on) {
   const rows = [document.getElementById('way' + t.way), document.querySelector(`#osmrows tr.part[data-id="${t.id}"]`)].filter(Boolean);
   rows.forEach(r => r.classList.toggle('hl', on));
@@ -416,7 +416,7 @@ function updateLayers() {
   else if (trailsOn) { trailLayer.addTo(map); styleTrails(); if (mode !== 'auto' && map.getZoom() >= 16) trailLabels.addTo(map); }
   else if (mode === 'auto') autoLayer.addTo(map); else manualLayer.addTo(map);
 }
-map.on('zoomend', () => { if (trailsOn) updateLayers(); });   // etiketterna bara inzoomat
+map.on('zoomend', () => { if (trailsOn) updateLayers(); });   // labels only when zoomed in
 function hlTrail(id, on) { const r = document.getElementById('trail' + id); if (r) r.classList.toggle('hl', on); }
 function setMode(m) {
   mode = m;
@@ -435,14 +435,14 @@ function drawLegend() {
     ? Object.keys(DIFFN).map(k => `<span class="key"><span class="sw ${dcls(k)}"></span>${DIFFN[k]}</span>`).join('')
     : mode === 'auto'
     ? AUTO.levels.map((n, i) => `<span class="key"><span class="sw lv${i}"></span>${n}</span>`).join('')
-    : '<b>mtb:scale</b><span>lättare</span>' +
+    : '<b>mtb:scale</b><span>easier</span>' +
       RAMP.map((c, i) => `<span class="key ${present.has(i) ? '' : 'absent'}"><span class="sw sc${i}"></span>${i}</span>`).join('') +
-      '<span>svårare</span>';
+      '<span>harder</span>';
 }
 drawLegend();
 if (HILLS.length) document.querySelector('.legend').insertAdjacentHTML('beforeend',
-  '<label class="toggle"><input type="checkbox" id="showhills" checked>branta backar <span class="halo up"></span>uppför <span class="halo down"></span>nedför (max lutning)</label>' +
-  (TRAILS ? '<label class="toggle" id="trailwrap"><input type="checkbox" id="showtrails">stigsegment (hela stigen mellan två korsningar)</label>' : ''));
+  '<label class="toggle"><input type="checkbox" id="showhills" checked>steep slopes <span class="halo up"></span>uphill <span class="halo down"></span>downhill (max grade)</label>' +
+  (TRAILS ? '<label class="toggle" id="trailwrap"><input type="checkbox" id="showtrails">trail segments (the whole trail between two junctions)</label>' : ''));
 const cb = document.getElementById('showhills');
 if (cb) cb.addEventListener('change', () => cb.checked ? hillLayer.addTo(map) : hillLayer.remove());
 const tcb = document.getElementById('showtrails');
@@ -463,19 +463,19 @@ document.getElementById('sum').innerHTML = RAMP.map((c, i) => {
          `<td>${total ? (100 * len / total).toFixed(0) : 0} %</td><td>${ss.length}</td></tr>`; }).join('');
 let climb = 0; for (let i = 1; i < PROF.length; i++) climb += Math.max(0, PROF[i][1] - PROF[i - 1][1]);
 document.getElementById('sub').textContent = SEGS.length
-  ? `${fmtDate(SEGS[0].start_ts)} · ${fmtLen(total)}${PROF.length ? ' · ↑ ' + climb.toFixed(0) + ' m' : ''} · ${SEGS.length} segment · peka på en linje för detaljer`
-  : 'Filen innehåller inga records med både position och mtb_scale.';
+  ? `${fmtDate(SEGS[0].start_ts)} · ${fmtLen(total)}${PROF.length ? ' · ↑ ' + climb.toFixed(0) + ' m' : ''} · ${SEGS.length} segments · point at a line for details`
+  : 'The file contains no records with both position and mtb_scale.';
 
-// ---- Branta backar: tabell ----
+// ---- Steep slopes: table ----
 function hlHill(id, on) {
   const r = document.getElementById('hill' + id); if (r) r.classList.toggle('hl', on);
   const b = document.getElementById('band' + id); if (b) b.setAttribute('fill-opacity', on ? .3 : .14);
 }
 document.getElementById('hills').innerHTML = HILLS.length ? HILLS.map(h =>
-  `<tr id="hill${h.id}" data-id="${h.id}"><td><span class="halo ${h.dir === 'upp' ? 'up' : 'down'}"></span></td><td>${arrow(h)} ${h.dir}för</td><td>${(h.start_d / 1000).toFixed(2).replace('.', ',')} km</td>` +
-  `<td>${fmtLen(h.length_m)}</td><td>${h.dh > 0 ? '+' : ''}${h.dh.toFixed(1).replace('.', ',')} m</td><td>${fmtPct(h.avg)}</td><td>${fmtPct(h.max)}</td>` +
+  `<tr id="hill${h.id}" data-id="${h.id}"><td><span class="halo ${h.dir}"></span></td><td>${arrow(h)} ${h.dir}hill</td><td>${(h.start_d / 1000).toFixed(2)} km</td>` +
+  `<td>${fmtLen(h.length_m)}</td><td>${h.dh > 0 ? '+' : ''}${h.dh.toFixed(1)} m</td><td>${fmtPct(h.avg)}</td><td>${fmtPct(h.max)}</td>` +
   `<td>${h.scale == null ? '–' : `<span class="key"><span class="sw sc${h.scale}"></span>${h.scale}</span>`}</td></tr>`).join('')
-  : '<tr class="nohl"><td colspan="8">Inga partier brantare än gränsen.</td></tr>';
+  : '<tr class="nohl"><td colspan="8">No stretches steeper than the limit.</td></tr>';
 document.querySelectorAll('#hills tr[data-id]').forEach(tr => {
   tr.addEventListener('click', () => {
     if (cb && !cb.checked) { cb.checked = true; hillLayer.addTo(map); }
@@ -485,18 +485,18 @@ document.querySelectorAll('#hills tr[data-id]').forEach(tr => {
   tr.addEventListener('mouseleave', () => hlHill(tr.dataset.id, false));
 });
 
-// ---- Automatisk bedömning: tabeller ----
+// ---- Automatic assessment: tables ----
 if (!AUTO) document.getElementById('autosec').remove();
 else renderAutoTables();
 function renderAutoTables() {
   const tot = AUTO.sections.reduce((a, s) => a + s.length_m, 0);
-  const km = m => (m / 1000).toFixed(1).replace('.', ',') + ' km', mm = AUTO.mount_m || {};
+  const km = m => (m / 1000).toFixed(1) + ' km', mm = AUTO.mount_m || {};
   document.getElementById('mountnote').innerHTML =
-    `Stig räknas från styrningen. Svår stig räknas från styrningen och farten relativt dagens vägfart, ` +
-    `<b>${String(AUTO.v_road).replace('.', ',')} km/h</b> (lutningsjusterad fart på passets lugnaste delar). ` +
-    (mm.arm ? `Klockan satt på armen ${km(mm.arm)}${AUTO.mount_forced ? ' (angivet)' : ', avgjort från pulsen'}; de delarna är streckade på kartan. ` +
-      `På armen skiljer bara farten lätt stig från svår, och gränsen mellan väg och stig är preliminär.` :
-      `Klockan satt på styret${AUTO.mount_forced ? ' (angivet)' : ''}.`);
+    `Trail is judged from the steering. Hard trail is judged from the steering and the speed relative to the day's road speed, ` +
+    `<b>${AUTO.v_road} km/h</b> (grade-adjusted speed on the calmest parts of the ride). ` +
+    (mm.wrist ? `The watch was on the wrist for ${km(mm.wrist)}${AUTO.mount_forced ? ' (specified)' : ', decided from the heart rate'}; those parts are dashed on the map. ` +
+      `On the wrist only the speed separates easy trail from hard, and the limit between road and trail is preliminary.` :
+      `The watch was on the handlebar${AUTO.mount_forced ? ' (specified)' : ''}.`);
   document.getElementById('autosum').innerHTML = AUTO.levels.map((n, L) => {
     const ss = AUTO.sections.filter(s => s.level === L), len = ss.reduce((a, s) => a + s.length_m, 0);
     const cnt = {}; ss.forEach(s => s.why.forEach(w => { const k = w.replace(/\s*[+-]?\d[\d.,]*\s*(%|m|s)?/g, '').trim(); cnt[k] = (cnt[k] || 0) + 1; }));
@@ -504,28 +504,28 @@ function renderAutoTables() {
     return `<tr class="nohl"><td><span class="lvl"><span class="dot lv${L}"></span>${n}</span></td>` +
            `<td>${fmtLen(len)}</td><td>${tot ? (100 * len / tot).toFixed(0) : 0} %</td><td class="why">${top || '–'}</td></tr>`; }).join('');
   document.getElementById('climbs').innerHTML = AUTO.climbs.length ? AUTO.climbs.map(c =>
-    `<tr class="nohl"><td>L${c.id}</td><td>${(c.start_d / 1000).toFixed(2).replace('.', ',')} km</td><td>${fmtLen(c.length_m)}</td>` +
-    `<td>+${c.gain.toFixed(1).replace('.', ',')} m</td><td>${c.avg.toFixed(1).replace('.', ',')} %</td></tr>`).join('')
-    : '<tr class="nohl"><td colspan="5">Inga långa backar.</td></tr>';
-  const cols = [['speed', 'Fart km/h'], ['cv', 'Ryckighet'], ['grade', 'Max lutning %'], ['curv', 'Kurvighet °/100 m'], ['stops_per_km', 'Stopp/km']]
-    .concat(AUTO.has.roughness ? [['roughness', 'Skak mG']] : []).concat(AUTO.has.steer ? [['steer', 'Styr °/s']] : []);
-  document.getElementById('calhead').innerHTML = '<tr><th>mtb:scale</th><th>Längd</th>' + cols.map(c => `<th>${c[1]}</th>`).join('') +
-    '<th>Automatiskt: lätt / vana / svårt</th></tr>';
+    `<tr class="nohl"><td>L${c.id}</td><td>${(c.start_d / 1000).toFixed(2)} km</td><td>${fmtLen(c.length_m)}</td>` +
+    `<td>+${c.gain.toFixed(1)} m</td><td>${c.avg.toFixed(1)} %</td></tr>`).join('')
+    : '<tr class="nohl"><td colspan="5">No long climbs.</td></tr>';
+  const cols = [['speed', 'Speed km/h'], ['cv', 'Unevenness'], ['grade', 'Max grade %'], ['curv', 'Curviness °/100 m'], ['stops_per_km', 'Stops/km']]
+    .concat(AUTO.has.roughness ? [['roughness', 'Shake mG']] : []).concat(AUTO.has.steer ? [['steer', 'Steer °/s']] : []);
+  document.getElementById('calhead').innerHTML = '<tr><th>mtb:scale</th><th>Length</th>' + cols.map(c => `<th>${c[1]}</th>`).join('') +
+    '<th>Automatic: easy / experience / hard</th></tr>';
   document.getElementById('cal').innerHTML = AUTO.per_scale.map(p =>
     `<tr class="nohl"><td><span class="key"><span class="sw sc${p.scale}"></span>${p.scale}</span></td><td>${fmtLen(p.length_m)}</td>` +
     cols.map(c => `<td>${p[c[0]] ?? '–'}</td>`).join('') + `<td>${p.levels.join(' / ')} %</td></tr>`).join('');
 }
 
-// ---- Skrivning till OSM (OAuth 2 med PKCE, ett changeset per way) ----
-// Värden att välja mellan. OSM:s skala går till 6, men 4-6 är extrem terräng.
+// ---- Writing to OSM (OAuth 2 with PKCE, one changeset per way) ----
+// Values to choose from. The OSM scale goes to 6, but 4-6 is extreme terrain.
 const SCALE_CHOICES = [0, 1, 2, 3];
 function writeCell(w) {
   if (!OSMCFG) return '';
-  if (!OSM_EDITABLE.includes(w.highway)) return '<span class="dim">inte stig</span>';
+  if (!OSM_EDITABLE.includes(w.highway)) return '<span class="dim">not a trail</span>';
   const other = w.osm_scale != null && !SCALE_CHOICES.some(v => w.osm_scale === String(v));
-  return (other ? `<span class="osmnow">i OSM: ${w.osm_scale}</span>` : '') + '<span class="pick">' + SCALE_CHOICES.map(v => {
+  return (other ? `<span class="osmnow">in OSM: ${w.osm_scale}</span>` : '') + '<span class="pick">' + SCALE_CHOICES.map(v => {
     const cur = w.osm_scale === String(v), mine = w.scale === v;
-    const title = cur ? 'finns redan i OSM' : mine ? 'ditt värde' : `tagga mtb:scale=${v}`;
+    const title = cur ? 'already in OSM' : mine ? 'your value' : `tag mtb:scale=${v}`;
     return `<button type="button" class="act${mine ? ' mine' : ''}${cur ? ' cur' : ''}" data-way="${w.way}" data-value="${v}" title="${title}" disabled>${v}</button>`;
   }).join('') + '</span>';
 }
@@ -548,7 +548,7 @@ const osm = {
     const p = JSON.parse(sessionStorage.getItem('osm_pkce') || 'null');
     sessionStorage.removeItem('osm_pkce');
     history.replaceState(null, '', location.pathname + (p && p.hash ? p.hash : '#osm'));
-    if (!p || p.state !== q.get('state')) throw new Error('fel state i OAuth-svaret');
+    if (!p || p.state !== q.get('state')) throw new Error('wrong state in the OAuth response');
     const r = await fetch(OSMCFG.base + '/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'authorization_code', code: q.get('code'), redirect_uri: this.redirect(), client_id: OSMCFG.client_id, code_verifier: p.verifier }) });
     if (!r.ok) throw new Error('token: ' + r.status + ' ' + (await r.text()).slice(0, 200));
@@ -562,11 +562,11 @@ const osm = {
   },
   async whoami() { const u = JSON.parse(await this.api('GET', 'user/details.json')).user; this.user = u.display_name; return u; },
   logout() { sessionStorage.removeItem('osm_token'); this.token = null; this.user = null; },
-  /** Skriver key=value på wayen i ett eget changeset. expected = värdet tabellen tror finns i OSM (kontroll). */
+  /** Writes key=value on the way in a changeset of its own. expected = the value the table believes is in OSM (check). */
   async tagWay(wayId, key, value, expected, comment) {
     const cur = await this.api('GET', 'way/' + wayId);
     const now = OsmEdit.getWayTag(cur, key);
-    if ((now ?? null) !== (expected ?? null)) throw new Error(`OSM har ändrats: ${key} är nu ${now ?? 'saknas'}. Ladda om kartan innan du skriver.`);
+    if ((now ?? null) !== (expected ?? null)) throw new Error(`OSM has changed: ${key} is now ${now ?? 'missing'}. Reload the map before writing.`);
     const cs = (await this.api('PUT', 'changeset/create', OsmEdit.changesetXml({ created_by: 'MTB Survey fitmap 0.3', comment, source: 'survey' }))).trim();
     try {
       const upd = OsmEdit.setWayTag(cur, key, value, cs);
@@ -577,19 +577,19 @@ const osm = {
 };
 async function initOsmWrite(ways) {
   const box = document.getElementById('osmauth');
-  if (!OSMCFG) { box.innerHTML = 'Skrivning till OSM är avstängd. Generera kartan med <code>--osm-client-id</code> för att slå på den.'; return; }
-  // OSM kräver en registrerad http(s)-adress att skicka tillbaka till. En lokal fil har ingen.
+  if (!OSMCFG) { box.innerHTML = 'Writing to OSM is turned off. Generate the map with <code>--osm-client-id</code> to turn it on.'; return; }
+  // OSM requires a registered http(s) address to redirect back to. A local file has none.
   if (location.protocol === 'file:') {
-    box.innerHTML = 'Inloggning på OSM fungerar inte när kartan öppnas som lokal fil. Generera med <code>--site &lt;mapp&gt;</code>, kör ' +
-      '<code>python3 -m http.server 8767 --bind 127.0.0.1</code> i mappen och öppna <code>http://127.0.0.1:8767/index.html</code> ' +
-      '(adressen ska finnas bland redirect-adresserna i OAuth-appen).';
+    box.innerHTML = 'Logging in to OSM does not work when the map is opened as a local file. Generate with <code>--site &lt;dir&gt;</code>, run ' +
+      '<code>python3 -m http.server 8767 --bind 127.0.0.1</code> in the directory and open <code>http://127.0.0.1:8767/index.html</code> ' +
+      '(the address must be among the redirect addresses of the OAuth app).';
     return;
   }
   const buttons = () => document.querySelectorAll('#osmrows button.act');
   const render = () => {
     box.innerHTML = osm.user
-      ? `Inloggad på ${OSMCFG.base.replace('https://', '')} som <b>${osm.user}</b>. <a href="#" id="osmlogout">Logga ut</a>`
-      : `<button type="button" class="act" id="osmlogin">Logga in på OSM</button> <span class="dim">för att kunna tagga ways nedan · redirect-adress att registrera i OAuth-appen: <code>${osm.redirect()}</code></span>`;
+      ? `Logged in to ${OSMCFG.base.replace('https://', '')} as <b>${osm.user}</b>. <a href="#" id="osmlogout">Log out</a>`
+      : `<button type="button" class="act" id="osmlogin">Log in to OSM</button> <span class="dim">to be able to tag the ways below · redirect address to register in the OAuth app: <code>${osm.redirect()}</code></span>`;
     buttons().forEach(b => { b.disabled = !osm.user || b.classList.contains('cur'); });
     const lo = document.getElementById('osmlogout'); if (lo) lo.addEventListener('click', e => { e.preventDefault(); osm.logout(); render(); });
     const li = document.getElementById('osmlogin'); if (li) li.addEventListener('click', () => osm.login());
@@ -598,39 +598,39 @@ async function initOsmWrite(ways) {
     await osm.finishLogin();
     osm.token = sessionStorage.getItem('osm_token');
     if (osm.token) await osm.whoami();
-  } catch (e) { osm.logout(); box.innerHTML = `<span class="err">Inloggning misslyckades: ${e.message}</span> `; }
+  } catch (e) { osm.logout(); box.innerHTML = `<span class="err">Login failed: ${e.message}</span> `; }
   render();
   buttons().forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation();
     const way = ways.find(w => w.way == b.dataset.way), td = b.closest('td'), v = Number(b.dataset.value);
     const reset = x => { x.classList.remove('confirm'); x.textContent = x.dataset.value; };
     if (!b.classList.contains('confirm')) {
-      td.querySelectorAll('button.confirm').forEach(reset);   // bara ett värde i taget väntar på bekräftelse
-      b.classList.add('confirm'); b.textContent = `Bekräfta mtb:scale=${v} på way ${way.way}`;
+      td.querySelectorAll('button.confirm').forEach(reset);   // only one value at a time awaits confirmation
+      b.classList.add('confirm'); b.textContent = `Confirm mtb:scale=${v} on way ${way.way}`;
       setTimeout(() => { if (b.classList.contains('confirm')) reset(b); }, 8000);
       return;
     }
-    td.querySelectorAll('button').forEach(x => { x.disabled = true; }); b.textContent = 'skriver…';
+    td.querySelectorAll('button').forEach(x => { x.disabled = true; }); b.textContent = 'writing…';
     try {
-      const r = await osm.tagWay(way.way, 'mtb:scale', v, way.osm_scale, 'mtb:scale från fältkartering med cykel');
+      const r = await osm.tagWay(way.way, 'mtb:scale', v, way.osm_scale, 'mtb:scale from field survey by bike');
       way.osm_scale = String(v); way.osm_n = v; way.diff = diffClass(way.scale, v); way.diff_auto = diffClass(way.level, v);
       TRAILS.segments.filter(t => t.way === way.way).forEach(t => { t.osm_scale = String(v); t.diff = diffClass(t.scale, v); t.diff_auto = diffClass(t.level, v); });
-      const tr = b.closest('tr'); tr.children[3].textContent = way.osm_scale; tr.children[6].innerHTML = diffCell(way.diff) + (way.split ? ' · <b>dela</b>' : '');
-      td.innerHTML = `<span class="ok">skrivet mtb:scale=${v}</span> · <a href="${OSMCFG.base}/changeset/${r.changeset}" target="_blank" rel="noopener">changeset ${r.changeset}</a>`;
+      const tr = b.closest('tr'); tr.children[3].textContent = way.osm_scale; tr.children[6].innerHTML = diffCell(way.diff) + (way.split ? ' · <b>split</b>' : '');
+      td.innerHTML = `<span class="ok">wrote mtb:scale=${v}</span> · <a href="${OSMCFG.base}/changeset/${r.changeset}" target="_blank" rel="noopener">changeset ${r.changeset}</a>`;
       if (mode === 'osm') { styleTrails(); drawProfile(); }
     } catch (err) {
       td.innerHTML = `<span class="err">${err.message}</span>`;
     }
   }));
 }
-/** Aktuellt mtb:scale för ways direkt från OSM:s API. Sidans värden kommer från Overpass när kartan
- *  genererades och är gamla så fort någon, till exempel du själv, har taggat. Returnerar antal ändrade. */
+/** Current mtb:scale for ways directly from the OSM API. The page's values come from Overpass when the map
+ *  was generated and are stale as soon as someone, for example you, has tagged. Returns the number changed. */
 async function refreshOsm(ways) {
   const base = OSMCFG ? OSMCFG.base : 'https://www.openstreetmap.org', now = {};
   const ids = ways.map(w => w.way);
   for (let i = 0; i < ids.length; i += 200) {
     const r = await fetch(`${base}/api/0.6/ways.json?ways=${ids.slice(i, i + 200).join(',')}`);
-    if (!r.ok) throw new Error('OSM svarade ' + r.status);
+    if (!r.ok) throw new Error('OSM responded ' + r.status);
     (await r.json()).elements.forEach(e => { now[e.id] = (e.tags && e.tags['mtb:scale']) ?? null; });
   }
   let changed = 0;
@@ -646,36 +646,36 @@ async function refreshOsm(ways) {
   return changed;
 }
 function osmInt(v) { const m = v == null ? null : /^\s*(\d+)[+-]?\s*$/.exec(v); return m ? Number(m[1]) : null; }
-function diffClass(mine, o) { return mine == null ? null : o == null ? 'saknas' : mine === o ? 'lika' : o > mine ? 'osm_högre' : 'osm_lägre'; }
+function diffClass(mine, o) { return mine == null ? null : o == null ? 'missing' : mine === o ? 'equal' : o > mine ? 'osm_higher' : 'osm_lower'; }
 
-// ---- Jämförelse med OSM ----
+// ---- Comparison with OSM ----
 if (TRAILS && TRAILS.ways.length) (async () => {
   const segById = Object.fromEntries(TRAILS.segments.map(t => [t.id, t]));
-  const ways = TRAILS.ways;   // i den ordning de cyklades
+  const ways = TRAILS.ways;   // in the order they were ridden
   let fresh;
   try {
     const n = await refreshOsm(ways);
-    fresh = `OSM-värdena är hämtade direkt från OSM ${new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}` +
-      (n ? `, ${n} har ändrats sedan kartan genererades` : '') + '. ';
+    fresh = `The OSM values were fetched directly from OSM at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` +
+      (n ? `, ${n} have changed since the map was generated` : '') + '. ';
     if (n) {
       document.querySelectorAll('#trailrows tr[data-id]').forEach(tr => { tr.lastElementChild.textContent = segById[tr.dataset.id].osm_scale ?? '–'; });
       if (mode === 'osm') { styleTrails(); drawProfile(); }
     }
-  } catch (e) { fresh = `<span class="err">Kunde inte hämta aktuella värden från OSM (${e.message}), tabellen visar läget när kartan genererades.</span> `; }
+  } catch (e) { fresh = `<span class="err">Could not fetch current values from OSM (${e.message}), the table shows the state when the map was generated.</span> `; }
   const valCell = (v, cls, m) => v == null ? '–' : `<span class="nw"><span class="key"><span class="sw ${cls}${v}"></span>${v}</span>` + (m ? ` <span class="dim">(${m} m)</span>` : '') + '</span>';
   const cnt = {}; ways.forEach(w => { cnt[w.diff] = (cnt[w.diff] || 0) + 1; });
-  document.getElementById('osmsum').innerHTML = fresh + `${ways.length} cyklade ways i cykelordning: ` +
-    Object.keys(DIFFN).map(k => `${cnt[k] || 0} ${DIFFN[k]}`).join(', ') + `. ${ways.filter(w => w.split).length} bör delas. ` +
-    `<a href="#" id="partsall">visa alla delar</a> · <a href="#" id="partsnone">dölj alla delar</a>`;
+  document.getElementById('osmsum').innerHTML = fresh + `${ways.length} ridden ways in riding order: ` +
+    Object.keys(DIFFN).map(k => `${cnt[k] || 0} ${DIFFN[k]}`).join(', ') + `. ${ways.filter(w => w.split).length} should be split. ` +
+    `<a href="#" id="partsall">show all parts</a> · <a href="#" id="partsnone">hide all parts</a>`;
   document.getElementById('osmrows').innerHTML = ways.map(w => {
     const parts = w.parts.map(id => segById[id]).filter(Boolean);
-    const open = w.split || parts.some(t => t.diff !== w.diff);   // delar med avvikelse visas från start
-    const tg = parts.length > 1 ? `<button type="button" class="tg" aria-expanded="${open}" aria-label="visa eller dölj delar">${open ? '▾' : '▸'}</button>` : '<span class="tg"></span>';
+    const open = w.split || parts.some(t => t.diff !== w.diff);   // parts with a difference are shown from the start
+    const tg = parts.length > 1 ? `<button type="button" class="tg" aria-expanded="${open}" aria-label="show or hide parts">${open ? '▾' : '▸'}</button>` : '<span class="tg"></span>';
     return `<tr id="way${w.way}" data-way="${w.way}"><td>${tg}<a href="https://www.openstreetmap.org/way/${w.way}" target="_blank" rel="noopener">${w.way}</a></td>` +
       `<td>${trailName(w)}</td><td>${fmtLen(w.covered_m)}</td><td>${w.osm_scale ?? '–'}</td>` +
       `<td>${valCell(w.scale, 'sc', w.scale_m)}</td><td>${valCell(w.level, 'lv', w.level_m)}</td>` +
-      `<td>${diffCell(w.diff)}${w.split ? ' · <b>dela</b>' : ''}</td><td class="dim">${osmTags(w) || '–'}</td><td class="write">${writeCell(w)}</td></tr>` +
-      (parts.length > 1 ? parts.map(t => `<tr class="part" data-way="${w.way}" data-id="${t.id}"${open ? '' : ' hidden'}><td>del ${t.id}</td><td></td><td>${fmtLen(t.covered_m)}</td><td></td>` +
+      `<td>${diffCell(w.diff)}${w.split ? ' · <b>split</b>' : ''}</td><td class="dim">${osmTags(w) || '–'}</td><td class="write">${writeCell(w)}</td></tr>` +
+      (parts.length > 1 ? parts.map(t => `<tr class="part" data-way="${w.way}" data-id="${t.id}"${open ? '' : ' hidden'}><td>part ${t.id}</td><td></td><td>${fmtLen(t.covered_m)}</td><td></td>` +
         `<td>${valCell(t.scale, 'sc', t.scale_m)}</td><td>${valCell(t.level, 'lv', t.level_m)}</td><td>${diffCell(t.diff)}</td><td></td><td></td></tr>`).join('') : '');
   }).join('');
   initOsmWrite(ways);
@@ -702,13 +702,13 @@ if (TRAILS && TRAILS.ways.length) (async () => {
   });
 })(); else document.getElementById('osmsec').remove();
 
-// ---- Stigsegment-tabell ----
+// ---- Trail segment table ----
 if (TRAILS && TRAILS.segments.length) {
   const cell = (v, cls, m) => v == null ? '–' : `<span class="key"><span class="sw ${cls}${v}"></span>${AUTO && cls === 'lv' ? AUTO.levels[v] : v}</span> <span class="dim">(${m} m)</span>`;
   document.getElementById('trailrows').innerHTML = TRAILS.segments.map(t =>
     `<tr id="trail${t.id}" data-id="${t.id}"><td>${t.id}</td><td>${trailName(t)}</td>` +
     `<td>${t.way ? `<a href="https://www.openstreetmap.org/way/${t.way}" target="_blank" rel="noopener">${t.way}</a>` : '–'}</td>` +
-    `<td>${fmtLen(t.length_m)}</td><td>${fmtLen(t.covered_m)}${t.passes > 1 ? ' · ' + t.passes + ' pass' : ''}</td>` +
+    `<td>${fmtLen(t.length_m)}</td><td>${fmtLen(t.covered_m)}${t.passes > 1 ? ' · ' + t.passes + ' passes' : ''}</td>` +
     `<td>${cell(t.scale, 'sc', t.scale_m)}</td><td>${cell(t.level, 'lv', t.level_m)}</td><td>${t.osm_scale ?? '–'}</td></tr>`).join('');
   document.querySelectorAll('#trailrows tr').forEach(tr => {
     const g = trailGroups[tr.dataset.id];
@@ -722,7 +722,7 @@ if (TRAILS && TRAILS.segments.length) {
   });
 } else document.getElementById('trailsec').remove();
 
-// ---- Höjdprofil (SVG) ----
+// ---- Elevation profile (SVG) ----
 if (!PROF.length) document.getElementById('profsec').remove();
 const box = document.getElementById('prof'), svg = box && box.querySelector('svg'), tipEl = box && box.querySelector('.tip');
 const cursor = L.circleMarker([0, 0], { radius: 7, color: '#fff', weight: 3, fillColor: '#0b0b0b', fillOpacity: 1, interactive: false });
@@ -745,7 +745,7 @@ function drawProfile() {
   aMin = Math.floor(aMin / yStep) * yStep; aMax = Math.ceil(aMax / yStep) * yStep;
   const x = d => m.l + (W - m.l - m.r) * d / dMax, y = a => m.t + (H - m.t - m.b) * (aMax - a) / (aMax - aMin);
   geo = { x, m, W, H, dMax };
-  // rutnät och axlar, recessiva
+  // grid and axes, recessive
   for (let a = aMin; a <= aMax + 1e-9; a += yStep) {
     el('line', { x1: m.l, x2: W - m.r, y1: y(a), y2: y(a), stroke: '#e1e0d9', 'stroke-width': 1 }, svg);
     el('text', { x: m.l - 6, y: y(a) + 4, 'text-anchor': 'end', 'font-size': 11, fill: '#898781' }, svg).textContent = a + ' m';
@@ -753,16 +753,16 @@ function drawProfile() {
   const xStep = niceStep(dMax / 1000, Math.max(3, Math.floor(W / 110)));
   for (let k = 0; k <= dMax / 1000 + 1e-9; k += xStep)
     el('text', { x: x(k * 1000), y: H - 8, 'text-anchor': 'middle', 'font-size': 11, fill: '#898781' }, svg).textContent =
-      (+k.toFixed(2)).toString().replace('.', ',') + ' km';
-  // branta backar som band bakom kurvan
+      (+k.toFixed(2)).toString() + ' km';
+  // steep slopes as bands behind the curve
   HILLS.forEach(h => {
     el('rect', { id: 'band' + h.id, x: x(h.start_d), y: m.t, width: Math.max(2, x(h.end_d) - x(h.start_d)), height: H - m.t - m.b,
                  fill: HILLC[h.dir], 'fill-opacity': .14 }, svg);
   });
-  // yta + linje färgad per mtb:scale
+  // area + line coloured by mtb:scale
   el('path', { d: `M${x(0)},${y(aMin)} ` + PROF.map(p => `L${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ') +
                ` L${x(dMax)},${y(aMin)} Z`, fill: '#e1e0d9', 'fill-opacity': .55 }, svg);
-  // långa backar: tunn stapel längst ned i plottytan
+  // long climbs: thin bar at the bottom of the plot area
   if (AUTO) AUTO.climbs.forEach(c => {
     el('rect', { x: x(c.start_d), y: H - m.b - 5, width: x(c.end_d) - x(c.start_d), height: 5, rx: 2, fill: '#52514e' }, svg);
     el('text', { x: x(c.start_d) + 3, y: H - m.b - 8, 'font-size': 10, 'font-weight': 700, fill: '#52514e' }, svg).textContent = 'L' + c.id;
@@ -774,7 +774,7 @@ function drawProfile() {
     run.push(PROF[i]);
     if (colorAt(i) !== colorAt(i - 1) || i === PROF.length - 1) { flush(colorAt(i - 1)); run = [PROF[i]]; }
   }
-  // hårkors
+  // crosshair
   geo.cross = el('line', { y1: m.t, y2: H - m.b, stroke: '#0b0b0b', 'stroke-width': 1, visibility: 'hidden' }, svg);
   geo.dot = el('circle', { r: 4.5, fill: '#0b0b0b', stroke: '#fff', 'stroke-width': 2, visibility: 'hidden' }, svg);
   geo.y = y;
@@ -790,11 +790,11 @@ function showAt(i) {
   geo.cross.setAttribute('x1', px); geo.cross.setAttribute('x2', px); geo.cross.setAttribute('visibility', 'visible');
   geo.dot.setAttribute('cx', px); geo.dot.setAttribute('cy', geo.y(p[1])); geo.dot.setAttribute('visibility', 'visible');
   const hill = HILLS.find(h => p[0] >= h.start_d && p[0] <= h.end_d);
-  tipEl.innerHTML = `<b>${(p[0] / 1000).toFixed(2).replace('.', ',')} km</b> · <b>${p[1].toFixed(1).replace('.', ',')} m</b><br>` +
-    `lutning <b>${fmtPct(p[2])}</b>` + (p[5] != null ? ` · mtb:scale <b>${p[5]}</b>` : '') +
+  tipEl.innerHTML = `<b>${(p[0] / 1000).toFixed(2)} km</b> · <b>${p[1].toFixed(1)} m</b><br>` +
+    `grade <b>${fmtPct(p[2])}</b>` + (p[5] != null ? ` · mtb:scale <b>${p[5]}</b>` : '') +
     (p[7] != null ? ` · <b>${p[7].toFixed(0)} km/h</b>` : '') +
-    (hill ? `<br>${arrow(hill)} brant ${hill.dir}för, max ${fmtPct(hill.max)}` : '') +
-    (trailAt(i) ? `<br>stigsegment ${trailAt(i).id}: ${trailName(trailAt(i))} · ${mode === 'osm' ? (DIFFN[trailAt(i).diff] || 'utanför OSM') + ' (OSM ' + (trailAt(i).osm_scale ?? '–') + ', din ' + (trailAt(i).scale ?? '–') + ')' : mode === 'auto' ? AUTO.levels[trailAt(i).level] ?? '–' : 'mtb:scale ' + (trailAt(i).scale ?? '–')}` : '') +
+    (hill ? `<br>${arrow(hill)} steep ${hill.dir}hill, max ${fmtPct(hill.max)}` : '') +
+    (trailAt(i) ? `<br>trail segment ${trailAt(i).id}: ${trailName(trailAt(i))} · ${mode === 'osm' ? (DIFFN[trailAt(i).diff] || 'outside OSM') + ' (OSM ' + (trailAt(i).osm_scale ?? '–') + ', yours ' + (trailAt(i).scale ?? '–') + ')' : mode === 'auto' ? AUTO.levels[trailAt(i).level] ?? '–' : 'mtb:scale ' + (trailAt(i).scale ?? '–')}` : '') +
     (AUTO ? `<br><span class="lvl"><span class="dot lv${secAt(i).level}"></span>${AUTO.levels[secAt(i).level]}</span>` +
             (secAt(i).why.length ? ` <span class="why">(${secAt(i).why.join(', ')})</span>` : '') : '');
   tipEl.style.display = 'block';
@@ -821,7 +821,7 @@ if (PROF.length) {
 const flags = new Set(location.hash.slice(1).split(','));
 setMode(flags.has('osm') && TRAILS && TRAILS.ways.length ? 'osm' : AUTO && !flags.has('manual') ? 'auto' : 'manual');
 if (TRAILS && flags.has('trails')) setTrails(true);
-// tabellernas rubrikrader fästs precis under den fasta kartan
+// the tables' header rows stick right below the sticky map
 const stickEl = document.querySelector('.stick');
 const setStickH = () => document.documentElement.style.setProperty('--stickh', stickEl.offsetHeight + 'px');
 setStickH(); new ResizeObserver(setStickH).observe(stickEl);
@@ -831,13 +831,13 @@ setStickH(); new ResizeObserver(setStickH).observe(stickEl);
 
 LEAFLET_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/'
 OSM_BASE = 'https://www.openstreetmap.org'
-OSM_EDITABLE = ['path', 'track', 'footway', 'bridleway']   # vägtyper där mtb:scale hör hemma
-LEVEL_COLORS = ['#0ca30c', '#fab219', '#d03b3b']   # samma som LVLC i skriptet
-DIFF_COLORS = {'saknas': '#898781', 'lika': '#0ca30c', 'osm_lagre': '#2f6fdd', 'osm_hogre': '#d03b3b', 'none': '#c9c8c1'}
+OSM_EDITABLE = ['path', 'track', 'footway', 'bridleway']   # way types where mtb:scale belongs
+LEVEL_COLORS = ['#0ca30c', '#fab219', '#d03b3b']   # same as LVLC in the script
+DIFF_COLORS = {'missing': '#898781', 'equal': '#0ca30c', 'osm_lower': '#2f6fdd', 'osm_higher': '#d03b3b', 'none': '#c9c8c1'}
 
 
 def color_css():
-    """Klasser för färgerna, så att inga style-attribut behövs (CSP)."""
+    """Classes for the colours, so no style attributes are needed (CSP)."""
     out = []
     for i, c in enumerate(RAMP):
         out.append('  .sw.sc%d, .dot.sc%d { background:%s; } .seglabel.sc%d { border-color:%s; }' % (i, i, c, i, c))
@@ -849,7 +849,7 @@ def color_css():
 
 
 def write_site(html, site, geojson_paths):
-    """Mapp för webbhotell: index.html utan inbäddad css/js, style.css, app.js, leaflet/."""
+    """Directory for a web host: index.html without embedded css/js, style.css, app.js, leaflet/."""
     os.makedirs(site, exist_ok=True)
     a, rest = html.split('<style>\n', 1)
     css, rest = rest.split('</style>', 1)
@@ -857,7 +857,7 @@ def write_site(html, site, geojson_paths):
     js, tail = rest.rsplit('</script>', 1)
     b0, rest2 = b.split('<script id="osmedit">', 1)
     osmedit, b1 = rest2.split('</script>', 1)
-    # ?v=<innehållshash> så att webbläsaren inte visar en annan turs app.js ur cachen
+    # ?v=<content hash> so the browser does not show another ride's app.js from its cache
     v = lambda body: hashlib.sha1(body.encode()).hexdigest()[:10]
     b = b0 + '<script src="osmedit.js?v=%s"></script>' % v(osmedit) + b1
     page = (a + '<link rel="stylesheet" href="style.css?v=%s">' % v(css) + b + '<script src="app.js?v=%s"></script>' % v(js) + tail)
@@ -885,7 +885,7 @@ def main():
     if '--mount' in args:
         i = args.index('--mount'); mount = args[i + 1]; del args[i:i + 2]
         if mount not in trailanalysis.MOUNTS:
-            sys.exit('--mount ska vara ' + ' eller '.join(trailanalysis.MOUNTS))
+            sys.exit('--mount must be ' + ' or '.join(trailanalysis.MOUNTS))
     no_osm = '--no-osm' in args
     if no_osm:
         args.remove('--no-osm')
@@ -910,11 +910,11 @@ def main():
     if prof and not no_osm:
         try:
             trails = trailsegments.build(prof, auto, outdir, STEP_M)
-        except Exception as e:  # noqa: BLE001 - nätverksfel ska inte stoppa kartan
-            print('Stigsegment hoppas över:', e, file=sys.stderr)
+        except Exception as e:  # noqa: BLE001 - network errors must not stop the map
+            print('Skipping trail segments:', e, file=sys.stderr)
     geojsons = [os.path.join(outdir, name + '.geojson')]
     if trails:
-        geojsons.append(os.path.join(outdir, name + '_stigsegment.geojson'))
+        geojsons.append(os.path.join(outdir, name + '_trails.geojson'))
         with open(geojsons[1], 'w') as f:
             json.dump(trailsegments.to_geojson(trails, auto), f, indent=1)
     with open(os.path.join(outdir, name + '.geojson'), 'w') as f:
@@ -937,20 +937,20 @@ def main():
     if site:
         write_site(html, site, geojsons)
     for s in segs:
-        print('segment %d  mtb:scale=%s  %6.1f m  %3d s  %d punkter' % (
+        print('segment %d  mtb:scale=%s  %6.1f m  %3d s  %d points' % (
             s['id'], s['scale'], s['length_m'], s['end_ts'] - s['start_ts'], len(s['coords'])))
     for h in hills:
-        print('backe %d  %sför  vid %.2f km  %4d m  %+5.1f m  snitt %+5.1f %%  max %+5.1f %%' % (
+        print('slope %d  %shill  at %.2f km  %4d m  %+5.1f m  avg %+5.1f %%  max %+5.1f %%' % (
             h['id'], h['dir'], h['start_d'] / 1000, h['length_m'], h['dh'], h['avg'], h['max']))
-    print('Skrev', os.path.join(outdir, name + '.html'))
+    print('Wrote', os.path.join(outdir, name + '.html'))
     for g in geojsons:
-        print('Skrev', g)
+        print('Wrote', g)
     if trails:
         segs_t = trails['segments']
-        print('stigsegment: %d cyklade av %d i OSM-nätet (%d ways), %d utanför nätet' % (
+        print('trail segments: %d ridden of %d in the OSM network (%d ways), %d outside the network' % (
             len(segs_t), trails['osm_segments'], trails['osm_ways'], sum(1 for t in segs_t if t['way'] is None)))
     if site:
-        print('Skrev webbmapp', site)
+        print('Wrote web directory', site)
 
 
 if __name__ == '__main__':

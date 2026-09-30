@@ -1,25 +1,25 @@
-# Byggresultat från monkeyc
+# Build output from monkeyc
 bin/
 *.prg
 *.iq
 *.prg.debug.xml
 
-# Utvecklarnyckeln är hemlig och ska aldrig checkas in
+# The developer key is secret and must never be committed
 developer_key
 *.der
 *.pem
 
-# Egna turer: FIT-filer, genererade kartor och analysdumpar innehåller GPS-positioner
+# Your own rides: FIT files, generated maps and analysis dumps contain GPS positions
 *.fit
 *.FIT
 maps/
 secs.json
 *_ACTIVITY.html
 *_ACTIVITY.geojson
-*_stigsegment.geojson
+*_trails.geojson
 osm_*.json
 
-# Python, Node, editorer och operativsystem
+# Python, Node, editors and operating systems
 __pycache__/
 *.pyc
 node_modules/
