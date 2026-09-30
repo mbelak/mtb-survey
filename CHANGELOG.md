@@ -13,6 +13,7 @@ Analysverktygen:
 
 Projektet:
 - Dokumentationen är uppdelad i README och `docs/`. Makefile med `build`, `package` och `test`, och GitHub Actions för testerna.
+- Skärmbilder av klockan och kartan, och en exempelkarta i `docs/exempel/`.
 
 ## 0.3
 

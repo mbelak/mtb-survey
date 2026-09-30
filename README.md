@@ -5,6 +5,12 @@ knappar, och klockan mäter samtidigt skakningar och styrrörelser. Efteråt bli
 stigarna är färgade efter din bedömning och efter en automatisk bedömning. Därifrån kan du skriva
 taggen `mtb:scale` direkt till OpenStreetMap.
 
+<p align="center">
+  <img src="docs/bilder/klocka.png" alt="Klockappen i Connect IQ-simulatorn: rubriken MTB SURVEY, GPS-status, svårigheten 1 i stora siffror och hjälptext om knapparna" width="260">
+</p>
+
+![Exempelkarta med stigarna färgade efter den automatiska bedömningen: grönt lätt, gult kräver vana, rött svårt för barn. Branta backar är markerade med lutning i procent.](docs/bilder/karta-automatisk.png)
+
 Projektet består av två delar:
 
 - **Klockappen** i `source/`. En Connect IQ-app som spelar in en vanlig cykelaktivitet och skriver
@@ -142,6 +148,25 @@ python3 tools/fitdump.py tur.fit
 ```
 Sista raden summerar hur många records som har position, svårighet och sensorvärden.
 
+## Exempel
+
+Exempelkartan [docs/exempel/karta.html](docs/exempel/karta.html) är gjord från 8 km av en tur med
+handbedömning. Ladda ner filen och öppna den i en webbläsare. Början och slutet av turen är bortklippta.
+
+Samma tur med din egen bedömning i stället för den automatiska, och med höjdprofilen under kartan:
+
+![Kartan i läget Din bedömning. Spåret är färgat efter värdet som angavs med knapparna, med siffror på varje segment. Under kartan visas höjdprofilen i samma färger.](docs/bilder/karta-din-bedomning.png)
+
+Jämförelse med `mtb:scale` som redan finns i OpenStreetMap. Grått saknas i OSM, grönt är lika,
+blått betyder att OSM har ett lägre värde och rött ett högre:
+
+![Kartan i läget Mot OSM, där varje stig är färgad efter hur bedömningen förhåller sig till OpenStreetMaps värde.](docs/bilder/karta-mot-osm.png)
+
+Under kartan finns tabeller med den automatiska bedömningen och mätvärdena per nivå,
+följda av en rad per stig i OpenStreetMap:
+
+![Tabellerna Automatisk bedömning, Långa backar och Mätvärden per mtb:scale.](docs/bilder/tabeller.png)
+
 ## Dokumentation
 
 | Dokument | Innehåll |
@@ -169,7 +194,7 @@ tools/
   osmedit.js                  taggbyte i OSM-way-XML, används av kartsidan
   leaflet/                    Leaflet 1.9.4 för webbhotellsmappen
   test_*.py, test_osmedit.js  tester
-docs/                         dokumentation
+docs/                         dokumentation, skärmbilder och exempelkarta
 ```
 
 ## Tester
@@ -186,6 +211,7 @@ Python- och Node-testerna körs också av GitHub Actions vid varje push.
 FIT-filer, kartor och GeoJSON-filer innehåller dina GPS-positioner, och ofta startar turen hemma.
 Dela dem bara med dem som får se var du har varit. `.gitignore` utesluter dem från git.
 Skriver du till OpenStreetMap blir bara taggen `mtb:scale` på stigen publik, inte ditt spår.
+Exempelkartan och skärmbilderna i `docs/` visar en del av en verklig tur, med början och slut bortklippta.
 
 ## Kända begränsningar
 

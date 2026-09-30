@@ -5,6 +5,8 @@ Kommandona finns i [README](../README.md#analysera-en-tur).
 
 ## Karta, höjdprofil och branta backar
 
+![Kartan i läget Din bedömning, med höjdprofilen under.](bilder/karta-din-bedomning.png)
+
 Spåret delas i segment där `mtb_scale` är konstant, och bryts även vid paus.
 Verktyget skriver två filer bredvid FIT-filen, eller i utmappen:
 - en fristående HTML-karta med färgkodade linjer, siffra på varje segment, teckenförklaring och tabell. Den hämtar kartbilder från OpenStreetMap och kräver internet.
@@ -19,6 +21,8 @@ Lutningen räknas på höjden omsamplad var 5:e meter och utjämnad över cirka 
 Båda filerna innehåller dina GPS-positioner.
 
 ## Stigsegment
+
+![Kartan med kryssrutan stigsegment ikryssad. Varje stig mellan två korsningar har en färg för hela sin längd.](bilder/karta-stigsegment.png)
 
 Kryssrutan **stigsegment** ovanför kartan färgar hela stigen mellan två korsningar med ett
 sammanvägt värde, i stället för spåret bit för bit. Det gäller i båda lägena: din bedömning
