@@ -223,4 +223,5 @@ Exempelkartan och skärmbilderna i `docs/` visar en del av en verklig tur, med b
 
 ## Licens
 
-Ingen licens är vald ännu. Leaflet i `tools/leaflet/` har sin egen licens, BSD 2-Clause.
+[MIT](LICENSE). Leaflet i `tools/leaflet/` har sin egen licens, BSD 2-Clause.
+Kartdata och stigar från OpenStreetMap, även i exempelkartan, omfattas av [ODbL](https://www.openstreetmap.org/copyright).
