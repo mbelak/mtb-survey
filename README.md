@@ -23,6 +23,8 @@ watch ──FIT file──▶ fitmap.py ──▶ map (HTML) and GeoJSON ──�
                         │
                         ├─ trailanalysis.py   automatic assessment per 25 m
                         └─ trailsegments.py   trails between junctions, from OpenStreetMap
+
+several FIT files ──▶ trailmerge.py ──▶ one level per trail, combined over all passes
 ```
 
 ## The vision
@@ -155,8 +157,20 @@ See [the map page](docs/map-page.md).
 | `--site dir` | Also writes a folder for a web host, which works under a strict Content Security Policy |
 | `--no-osm` | Skips the trail segments, so no request to OpenStreetMap |
 | `--mount wrist` or `--mount handlebar` | Sets where the watch was mounted. Otherwise it is detected from the heart rate. |
+| `--conditions dry` or `--conditions wet` | How the trails were that day. Shown on the map and written to the trail segments; does not change the levels |
 | `--osm-client-id ID` | Enables writing `mtb:scale` to OpenStreetMap from the map page |
 | `--osm-api URL` | Another OSM server, for example the test server |
+
+**Several rides combined**, one level per trail:
+```
+python3 tools/trailmerge.py ride1.fit ride2.fit:wet ride3.fit [--out dir] [--name name]
+```
+Each pass over a trail segment between two junctions gets its own level, and the passes are combined
+into one, as the median weighted by the metres covered. The level is meant for dry conditions, like
+`mtb:scale` in OSM: mark rides on wet, muddy or leafy trails with `:wet`, and dry rides decide where
+there are any. A trail ridden only in the wet is dashed on the map. Only sections with the watch on the
+handlebar count. Writes `<name>_merged.html` and `<name>_merged_trails.geojson`. No manual assessment
+is needed; where rides have one, it is combined the same way and shown next to the automatic level.
 
 **Automatic assessment** in the terminal:
 ```
@@ -215,6 +229,7 @@ tools/
   fitmap.py                   map, elevation profile and web host folder
   trailanalysis.py            automatic assessment; the limits are at the top
   trailsegments.py            trail segments and comparison with OpenStreetMap
+  trailmerge.py               several rides combined into one level per trail
   osmedit.js                  tag change in OSM way XML, used by the map page
   leaflet/                    Leaflet 1.9.4 for the web host folder
   test_*.py, test_osmedit.js  tests

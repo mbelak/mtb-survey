@@ -11,6 +11,10 @@ Analysis tools:
 - The day's road speed is the 65th percentile of the grade-adjusted speed on the calmest half of the
   ride, instead of the median of the calmest 35 %. On a trail-heavy ride the old reference was pulled
   down by slow trail and almost nothing was called hard. See `docs/research.md`, section 11.
+- `tools/trailmerge.py` combines several rides into one level per trail segment: the median over the
+  passes weighted by covered metres, with dry rides deciding. Taking the highest level of any pass would
+  make a trail harder the more often it is ridden. Wrist sections are left out.
+- `--conditions dry|wet` for `fitmap.py`; `:dry` or `:wet` after each file for `trailmerge.py`.
 - `tools/fitdump.py` reads `device_info`, so connected heart rate straps are visible.
 - Unit tests in `tools/test_trailanalysis.py`.
 

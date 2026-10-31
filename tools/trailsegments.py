@@ -35,11 +35,24 @@ def bbox_of(prof):
             round(max(lats) + MARGIN_DEG, 4), round(max(lons) + 2 * MARGIN_DEG, 4))
 
 
+def _query(bbox):
+    return '[out:json][timeout:60];way[highway~"^(%s)$"](%s);out geom;' % (HIGHWAYS, ','.join('%.4f' % v for v in bbox))
+
+
+def _cache_path(bbox, cache_dir):
+    return os.path.join(cache_dir, 'osm_%s.json' % hashlib.sha1(_query(bbox).encode()).hexdigest()[:12])
+
+
+def cached_ways(bbox, cache_dir):
+    """OSM ways in the area from the cache, or None if it has not been fetched."""
+    path = _cache_path(bbox, cache_dir)
+    return json.load(open(path))['elements'] if os.path.exists(path) else None
+
+
 def fetch_ways(bbox, cache_dir):
     """OSM ways in the area, from the cache if it exists."""
-    q = '[out:json][timeout:60];way[highway~"^(%s)$"](%s);out geom;' % (HIGHWAYS, ','.join('%.4f' % v for v in bbox))
-    key = hashlib.sha1(q.encode()).hexdigest()[:12]
-    path = os.path.join(cache_dir, 'osm_%s.json' % key)
+    q = _query(bbox)
+    path = _cache_path(bbox, cache_dir)
     if os.path.exists(path):
         return json.load(open(path))['elements']
     data = urllib.parse.urlencode({'data': q}).encode()
@@ -346,6 +359,8 @@ def to_geojson(trails, auto):
                  'length_m': s['length_m'], 'covered_m': s['covered_m'], 'passes': s['passes'],
                  'diff': s.get('diff'), 'diff_auto': s.get('diff_auto'),
                  'way_mtb_scale': ways.get(s['way'], {}).get('scale'), 'way_split': ways.get(s['way'], {}).get('split')}
+        if auto and auto.get('conditions'):
+            props['conditions'] = auto['conditions']
         for k, v in s.get('tags', {}).items():
             props['osm_' + k] = v
         feats.append({'type': 'Feature', 'properties': props,
