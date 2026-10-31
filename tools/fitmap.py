@@ -36,6 +36,13 @@ FIT_EPOCH = datetime(1989, 12, 31, tzinfo=timezone.utc)
 RAMP = ['#f0a30a', '#e8601c', '#d42a4f', '#a21d86', '#6a1f9c', '#33257a', '#130d2b']
 
 
+def js_json(v):
+    """JSON for embedding in a <script> element. OSM names and tags are anyone's text, so <, > and &
+    are escaped: a name containing </script> must not end the script and run code of its own."""
+    return (json.dumps(v, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e')
+            .replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029'))
+
+
 def dist_m(a, b):
     la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
@@ -929,11 +936,11 @@ def main():
             json.dump(trailsegments.to_geojson(trails, auto), f, indent=1)
     with open(os.path.join(outdir, name + '.geojson'), 'w') as f:
         json.dump(to_geojson(segs), f, indent=1)
-    html = (HTML.replace('__TITLE__', name).replace('__SEGS__', json.dumps(segs))
-                .replace('__RAMP__', json.dumps(RAMP)).replace('__PROF__', json.dumps(prof, separators=(',', ':')))
-                .replace('__HILLS__', json.dumps(hills)).replace('__STEP__', str(STEP_M))
-                .replace('__AUTO__', json.dumps(auto, separators=(',', ':')))
-                .replace('__TRAILS__', json.dumps(trails, separators=(',', ':')))
+    html = (HTML.replace('__TITLE__', name).replace('__SEGS__', js_json(segs))
+                .replace('__RAMP__', json.dumps(RAMP)).replace('__PROF__', js_json(prof))
+                .replace('__HILLS__', js_json(hills)).replace('__STEP__', str(STEP_M))
+                .replace('__AUTO__', js_json(auto))
+                .replace('__TRAILS__', js_json(trails))
                 .replace('__MINRUN__', str(trailsegments.MIN_RUN_M)).replace('__MATCHM__', str(trailsegments.MATCH_M))
                 .replace('__OSMCFG__', json.dumps(osm_cfg)).replace('__OSMEDITABLE__', json.dumps(OSM_EDITABLE))
                 .replace('__OSMEDIT__', open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'osmedit.js')).read())

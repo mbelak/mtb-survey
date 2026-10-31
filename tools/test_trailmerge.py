@@ -77,4 +77,12 @@ with tempfile.TemporaryDirectory() as d:
     assert {f['properties']['osm_way'] for f in feats} == {1, 2}
     assert all(f['properties']['passes'] for f in feats)
 
+# --- Text from OSM cannot break out of the page's script ----------------------------
+evil = [dict(by_way[1], name='</script><script>alert(1)</script> __RIDES__')]
+page = tm.render('<b>t</b>', evil, [])
+script = page.rsplit('<script>', 1)[1]
+assert '</script><script>alert' not in page and script.count('</script>') == 1, 'OSM name broke out of the script'
+assert '\\u003c/script\\u003e' in page and '__RIDES__' in page and '<b>t</b>' not in page
+assert json.loads(page.split('const SEGS = ', 1)[1].split(', RIDES = ', 1)[0])[0]['name'] == evil[0]['name']
+
 print('trailmerge: all tests passed')
