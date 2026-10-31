@@ -65,10 +65,13 @@ MOUNT_LIMITS = {
 }
 MOUNTS = tuple(MOUNT_LIMITS)
 
-# The day's road speed: median of the grade-adjusted speed on the ROAD_Q calmest sections
-# (lowest steer, counted within each mount). Speed relative to it tolerates the pace varying
-# between days, which absolute speed does not.
-ROAD_Q = 0.35
+# The day's road speed: the ROAD_SPEED_Q quantile of the grade-adjusted speed on the ROAD_Q calmest
+# sections (lowest steer, counted within each mount). Speed relative to it tolerates the pace varying
+# between days, which absolute speed does not. The calm half also contains slow trail on trail-heavy
+# rides, so a high quantile of its speed is taken rather than the median: on a ride with 76 % trail
+# (2026-10-25) the median of the calmest 35 % gave 12.4 km/h where the roads held 16.2.
+ROAD_Q = 0.5
+ROAD_SPEED_Q = 0.65
 GRADE_K = -0.036                  # speed ~ exp(GRADE_K * grade %), fitted on road
 MIN_ROAD_SECS = 4
 V_ROAD_DEFAULT = 15.0             # km/h, if the ride has too little calm distance
@@ -171,7 +174,7 @@ def _quantile(v, q):
 
 
 def road_speed(secs):
-    """The day's road speed in km/h: median of the grade-adjusted speed on the calmest sections."""
+    """The day's road speed in km/h: a high quantile of the grade-adjusted speed on the calmest sections."""
     road = []
     for mount in MOUNTS:
         ss = [s for s in secs if s.get('mount', 'handlebar') == mount and s.get('steer') is not None
@@ -180,7 +183,7 @@ def road_speed(secs):
             continue
         lim = _quantile([s['steer'] for s in ss], ROAD_Q)
         road += [s['speed'] / _grade_factor(s.get('avg_grade')) for s in ss if s['steer'] <= lim]
-    return statistics.median(road) if len(road) >= MIN_ROAD_SECS else V_ROAD_DEFAULT
+    return _quantile(road, ROAD_SPEED_Q) if len(road) >= MIN_ROAD_SECS else V_ROAD_DEFAULT
 
 
 def sections(prof, rows, climbs, mount=None):

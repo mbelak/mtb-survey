@@ -41,6 +41,7 @@ riding with children:
 | A, 2026-09-25 | 13 km | handlebar, chest strap for heart rate | yes, with the buttons during the ride | calibration |
 | W, 2026-09-29 | 7.6 km | wrist | no; the rider said afterwards it was only easy trails and gravel roads | sanity check |
 | P, 2026-09-30 | 11.5 km | wrist for the first half, handlebar for the second | no, only markers | wrist versus handlebar, and testing |
+| T, 2026-10-25 | 23.2 km | wrist, chest strap for heart rate | no | the calibration loop ridden six times in a row; wrist repeatability, and testing |
 
 Ride P was designed as an experiment: transport, the same loop of about 3.6 km twice, and transport
 back. The rider marked the start and end of each loop with a quick UP then DOWN, which shows up in the
@@ -155,10 +156,11 @@ steering, where it called 15 % hard, against 0 to 7 % for the road speed in the 
 - **The ride's median and sliding windows** depend on how much trail the ride contains. On a long hard
   stretch the window's own reference drops and hides the difficulty. A 5 minute window also made road
   against trail worse.
-- **The road speed of the day** is the median grade-adjusted speed on the calmest 35 % of the sections,
+- **The road speed of the day** was first the median grade-adjusted speed on the calmest 35 % of the sections,
   meaning those with the least steering. It follows the day's pace but not the share of trail.
   Uphill slows everyone, so speed is adjusted with `speed ~ exp(−0.036 · grade %)`, fitted on road
-  sections of ride A.
+  sections of ride A. Ride T later showed that the calm sections do include slow trail when the ride is
+  mostly trail, and the definition was changed, see [11](#11-the-wrist-is-not-repeatable-and-the-reference-dilutes).
 
 ### 9. The current rule
 
@@ -202,6 +204,63 @@ child-friendliness is about steepness, narrow passages and technical steering mo
 surface: a gravel road can shake a lot and still be easy. Shaking tells road from trail well
 (AUC 0.85 to 0.90), but not better than steering. It probably describes the OSM tag `smoothness` better
 than `mtb:scale`.
+
+### 11. The wrist is not repeatable, and the reference dilutes
+
+Ride T, 2026-10-25, was the loop from rides A and P ridden six times in a row, with the watch on the
+wrist and no labels. The labels from ride A were transferred by position and cover 20 of its 23 km, so
+every labelled section of the loop is measured six times. Three things came out of it.
+
+**The wrist is not repeatable between days.** On the same stretches, the wrist gave 1.6 times the
+handlebar's `roughness` and 2.2 times its `steer` on 2026-09-30, but 1.05 and 1.6 times on 2026-10-25.
+Within ride T the steering rose lap by lap, from 1.2 to 2.2 times the handlebar value of ride A, while
+`roughness` only rose from 1.0 to 1.2 times and the speed stayed within 10 %:
+
+| Lap | steer, T / A | roughness, T / A |
+|---|---|---|
+| 1 | 1.45 | 0.99 |
+| 2 | 1.64 | 1.02 |
+| 3 | 1.73 | 1.10 |
+| 4 | 2.03 | 1.16 |
+| 5 | 1.96 | 1.21 |
+| 6 | 2.20 | 1.21 |
+
+At standstill the watch read 2.4 °/s and about 20 mG all through the ride, the same as on the other
+rides, so the sensors did not drift. The arm did. Fatigue, grip or the strap's tension are all
+possible, and the data cannot tell them apart. The consequence is that no fixed steering limit can work
+on the wrist: the wrist trail limit of 59 °/s called 100 % of ride W easy, and on ride T the gravel roads
+alone averaged 43 °/s against 16 on the handlebar, so 27 % of them were called trail. Within each lap, `steer` still separated road from trail (AUC 0.72 to 0.86) but not
+easy trail from hard (AUC 0.16 to 0.61, mostly reversed), while relative speed separated 1 from 2 in
+every lap (AUC 0.64 to 0.93). This settles an open question from before: the wrist is not repeatable,
+and only the speed is worth using there.
+
+**The road speed reference dilutes on trail-heavy rides.** Ride T was 76 % trail by label. The calmest
+35 % of its sections, by steering, therefore contained a lot of slow trail, and the reference came out
+at 12.4 km/h where the gravel roads actually held 16.2. Everything then looked fast, and the wrist rule
+found only 19 % of the hard sections. The reference was compared with the true road speed, the
+grade-adjusted speed on the label-0 sections, on all rides:
+
+| Reference | A | W | P hb | P wrist | T | worst error |
+|---|---|---|---|---|---|---|
+| True road speed (label 0) | 16.3 | 10.6 | 15.1 | 16.0 | 16.2 | |
+| Median of the calmest 35 % (old) | 17.3 | 11.6 | 15.2 | 15.5 | 12.4 | −3.8 |
+| 65th percentile of the calmest 50 % (new) | 17.6 | 12.1 | 16.1 | 16.5 | 14.7 | −1.6 |
+| Calm below median and fast above median | 17.5 | 12.4 | 15.8 | 17.4 | 15.9 | +1.8 |
+| 65th percentile of the calmest 35 % | 18.5 | 12.4 | 17.2 | 17.6 | 15.9 | +2.6 |
+
+The new definition takes a high percentile of the speed within the calm half instead of its median, so
+slow trail that slips into the calm half no longer pulls the reference down. With the limits unchanged,
+balanced accuracy went from 0.72 to 0.75 on ride P handlebar, 0.63 to 0.64 on ride P wrist and 0.51 to
+0.55 on ride T, stayed at 0.73 on ride A, and ride W stayed 100 % easy. The gains are within the ±0.1
+uncertainty of a single ride, but they point the same way on every ride, and the reference now matches
+the true road speed within 1.6 km/h everywhere. A ride with no road at all would still fool it.
+
+**A trail limit relative to the day's steering does not transfer.** Because the steering level varied by
+a factor 2.7 between rides, a trail limit relative to the ride's own calm steering looked attractive, and
+on each ride the best absolute limit was indeed close to the ride's 35th percentile of `steer`. But
+fitted on ride A and tested on the others, a relative limit was worse than the absolute one: 0.58 to
+0.63 on ride P handlebar against 0.75, and it called 41 to 57 % of the easy ride W trail and 14 to 20 %
+of it hard. The share of road in a ride moves the percentile too much. The absolute limits stay.
 
 ## How OpenStreetMap is used
 
@@ -350,7 +409,10 @@ sharing them:
 ## Open questions
 
 - Does the handlebar rule hold on other trails, riders and bikes?
-- Is the wrist repeatable between days at all, and can a per-ride normalisation fix it?
+- The wrist is not repeatable between days, and its steering drifts within a ride (see
+  [11](#11-the-wrist-is-not-repeatable-and-the-reference-dilutes)). Is there any normalisation that
+  makes it usable, or should the wrist mode only use speed?
+- How should the road speed reference be found on a ride with no road at all?
 - Is 25 m sections with 125 m smoothing the right scale, or should the level be decided per trail
   segment from the start?
 - How should the child-friendly scale map to OSM's `mtb:scale`?
