@@ -8,9 +8,12 @@ The track is split into segments where mtb_scale is constant. Output:
                   the combined value. Needs internet (Overpass) the first time, see trailsegments.py.
 
 Usage:  python3 tools/fitmap.py activity.fit [outdir] [--site dir] [--no-osm] [--mount wrist|handlebar]
+                                [--conditions dry|wet]
 
 --no-osm skips the trail segments (no Overpass query).
 --mount wrist|handlebar  says where the watch was for the whole ride. Without the flag it is decided from the heart rate.
+--conditions dry|wet  how the trails were that day. Shown on the map and written to the trail segments.
+                    It does not change the levels. tools/trailmerge.py lets dry rides decide.
 --osm-client-id ID  enables writing mtb:scale to OSM from the map page (OAuth 2, PKCE).
 --osm-api URL       OSM server for login and writing, default https://www.openstreetmap.org.
                     The test server is https://master.apis.dev.openstreetmap.org (separate app registration).
@@ -463,7 +466,7 @@ document.getElementById('sum').innerHTML = RAMP.map((c, i) => {
          `<td>${total ? (100 * len / total).toFixed(0) : 0} %</td><td>${ss.length}</td></tr>`; }).join('');
 let climb = 0; for (let i = 1; i < PROF.length; i++) climb += Math.max(0, PROF[i][1] - PROF[i - 1][1]);
 document.getElementById('sub').textContent = SEGS.length
-  ? `${fmtDate(SEGS[0].start_ts)} · ${fmtLen(total)}${PROF.length ? ' · ↑ ' + climb.toFixed(0) + ' m' : ''} · ${SEGS.length} segments · point at a line for details`
+  ? `${fmtDate(SEGS[0].start_ts)}${AUTO && AUTO.conditions ? ' · ' + AUTO.conditions + ' conditions' : ''} · ${fmtLen(total)}${PROF.length ? ' · ↑ ' + climb.toFixed(0) + ' m' : ''} · ${SEGS.length} segments · point at a line for details`
   : 'The file contains no records with both position and mtb_scale.';
 
 // ---- Steep slopes: table ----
@@ -886,6 +889,11 @@ def main():
         i = args.index('--mount'); mount = args[i + 1]; del args[i:i + 2]
         if mount not in trailanalysis.MOUNTS:
             sys.exit('--mount must be ' + ' or '.join(trailanalysis.MOUNTS))
+    conditions = None
+    if '--conditions' in args:
+        i = args.index('--conditions'); conditions = args[i + 1]; del args[i:i + 2]
+        if conditions not in ('dry', 'wet'):
+            sys.exit('--conditions must be dry or wet')
     no_osm = '--no-osm' in args
     if no_osm:
         args.remove('--no-osm')
@@ -906,6 +914,8 @@ def main():
     prof = build_profile(rows)
     hills = find_hills(prof)
     auto = trailanalysis.analyze(rows, prof, mount=mount) if prof else None
+    if auto:
+        auto['conditions'] = conditions
     trails = None
     if prof and not no_osm:
         try:
