@@ -30,9 +30,12 @@ riding with children:
 
 | Label | Meaning |
 |---|---|
-| 0 | gravel road or asphalt |
-| 1 | child-friendly trail |
-| 2 | trail that is not child-friendly |
+| 0 | gravel road or asphalt, free of obstacles: no stones, no roots |
+| 1 | a six-year-old can ride it without walking. Simpler roots and stones that can be ridden over or around, no big gradients |
+| 2 | the child has to walk now and then: too stony, too rooty, rock slabs with small drops, or a nice trail with too steep a climb |
+| 3 | an adult has to walk. Rare, and counted as 2 in the analysis |
+
+Note that level 2 is decided by the worst spot on the trail ("has to walk somewhere"), not by its average.
 
 ## The data
 
@@ -42,6 +45,7 @@ riding with children:
 | W, 2026-09-29 | 7.6 km | wrist | no; the rider said afterwards it was only easy trails and gravel roads | sanity check |
 | P, 2026-09-30 | 11.5 km | wrist for the first half, handlebar for the second | no, only markers | wrist versus handlebar, and testing |
 | T, 2026-10-25 | 23.2 km | wrist, chest strap for heart rate | no | the calibration loop ridden six times in a row; wrist repeatability, and testing |
+| N, 2026-10-31 | 18.2 km | handlebar, chest strap for heart rate | yes, with the buttons; **wet**: leaves, slippery roots and mud | testing on new trails (8.6 km) and on ride A's trails (9.6 km) |
 
 Ride P was designed as an experiment: transport, the same loop of about 3.6 km twice, and transport
 back. The rider marked the start and end of each loop with a quick UP then DOWN, which shows up in the
@@ -262,6 +266,53 @@ fitted on ride A and tested on the others, a relative limit was worse than the a
 0.63 on ride P handlebar against 0.75, and it called 41 to 57 % of the easy ride W trail and 14 to 20 %
 of it hard. The share of road in a ride moves the percentile too much. The absolute limits stay.
 
+### 12. A second labelled ride: the rule holds, and the labels set the ceiling
+
+Ride N was the second ride labelled with the buttons, with the watch on the handlebar. About half of it
+followed ride A's trails and half was new. It was also wet, and the rider rated the trails harder that
+day because of leaves, slippery roots and mud.
+
+**The rule transfers.** Without any change to the limits, balanced accuracy was 0.72 (0.73 on A's trails,
+0.67 on the new ones), against 0.73 on ride A. Limits fitted on ride N gave 0.76 on N but 0.72 on A, and
+limits fitted on both rides gained at most 0.03, so nothing was changed. No extra feature helped when a
+logistic model was trained on one ride and tested on another: grade, speed variation, `roughness`,
+curviness, stops and 225 m of context all moved the result by ±0.02. Neither a steep-climb rule nor
+`jolt` (90th percentile, share of hits above 2000 mG) separated 1 from 2; the missed level 2 sections
+lie on almost flat ground. The labels came on time: shifting them by one 25 m section either way only
+made the fit worse.
+
+**The handlebar is repeatable.** On the same places, `steer` on ride N was 0.94 to 0.96 of ride A and
+`roughness` 0.86 to 0.88, and `steer` did not drift during the ride, unlike the wrist on ride T.
+
+**The labels set the ceiling.** On the same places, the rider gave the same label on both days for 69 %
+of the sections (balanced 0.71) and 68 % of the OSM trail segments. The rule agreed with itself between
+the days on 76 % of the sections and 80 % of the segments, and matched the labels at 0.73: about as
+well as the rider matched themselves. Where both days' labels agree, the rule scores 0.82 to 0.88. Per
+OSM trail segment it scored 0.77 on ride N, and per stretch the rider labelled as one piece, 0.80 to
+0.83 from 75 m and 0.89 to 0.96 from 250 m.
+
+**The wet day was harder, and the sensors saw it.** The labels on ride N were on average 0.2 levels
+higher than ride A's on the same places, and this matched the conditions, not a drifting scale. Away
+from button presses (more than 20 s), the road speed was the same as on ride A (14.1 against 14.4 km/h)
+while trail was 20 to 40 % slower. But the road speed reference diluted on this trail-heavy ride
+(11.3 km/h), which cancelled the effect: the rule moved 0.08 levels *easier*. With the road speed taken
+as the median where `steer` is below the trail limit, it moved 0.06 harder and called 41 % hard, against
+the labels' 34 %. Against ride A's dry labels on the same places, ride N's wet sensors separated 1 from
+2 as well as ride A's own sensors did (AUC 0.79 and 0.71 for steering and slowness, against 0.78 and
+0.72). The ordering of the trails does not depend on the weather; the level does.
+
+**Button presses slow the rider, but only briefly.** The speed drops by about 15 % within ±4 s of a
+press. Ride N had 9.3 presses per km, so 22 % of the time was within 5 s of one, but the total effect is
+about 2 %, and the 125 m smoothing evens most of it out.
+
+**Consequences.** The levels are meant for dry conditions, like OSM's `mtb:scale`, so labels from wet
+rides are not used to set the limits. Rides are marked dry or wet, and `tools/trailmerge.py` combines
+several rides per trail segment. Within one ride a segment gets the highest level that lasts 50 m, but
+across rides that rule gets harsher with every pass: on the segments with three passes it gave 0.77,
+0.70 and 0.66 for one, two and three passes. The median of the passes' levels, weighted by covered
+metres, held at 0.74 to 0.77, and letting the dry passes decide gave 0.77 against 0.72 for all passes
+equal. Only 53 segments had three passes, so this is a direction, not a measurement.
+
 ## How OpenStreetMap is used
 
 - **Trail network.** The tools fetch paths and roads around the ride from Overpass and split them at
@@ -374,7 +425,7 @@ Every kind of contribution helps, and none is too small:
 The current limits should be treated as a first guess. To trust them, and to learn a better model,
 the project needs **many more labelled rides**. In order of importance:
 
-1. **Handlebar rides on new trails, labelled with the buttons.** Different forests, surfaces and
+1. **Dry handlebar rides on new trails, labelled with the buttons.** Different forests, surfaces and
    gradients. This is the only way to see whether the rule works outside the one forest it was tuned in.
    A rough target is ten rides and 100 km, with plenty of all three levels. That is a guess, not a
    calculation.
@@ -385,6 +436,8 @@ the project needs **many more labelled rides**. In order of importance:
    single ride and failed on another day.
 5. **A written labelling guide** with examples of each level, used by everyone who labels. Consistent
    labels matter as much as more labels.
+6. **Conditions for every ride.** Wet rides are useful for the combined map, but their labels describe
+   wet trails and are not ground truth for the dry level.
 
 With enough data it becomes possible to:
 
@@ -402,8 +455,8 @@ sharing them:
 
 - Cut off the start and end of the ride, at least one or two kilometres, so that your home is not
   visible. The example map in `docs/example/` was made that way.
-- Say which scale you used, where the watch sat, whether a chest strap was connected, and anything
-  special about the ride, such as riding with children.
+- Say which scale you used, where the watch sat, whether a chest strap was connected, whether the
+  trails were dry or wet, and anything special about the ride, such as riding with children.
 - Open an issue to agree on how to share the files before sending them.
 
 ## Open questions
@@ -412,7 +465,11 @@ sharing them:
 - The wrist is not repeatable between days, and its steering drifts within a ride (see
   [11](#11-the-wrist-is-not-repeatable-and-the-reference-dilutes)). Is there any normalisation that
   makes it usable, or should the wrist mode only use speed?
-- How should the road speed reference be found on a ride with no road at all?
+- How should the road speed reference be found on a ride with no road at all, or one that is almost
+  all trail? The median speed where `steer` is below the trail limit followed the wet ride better, but
+  did not change the accuracy (see [12](#12-a-second-labelled-ride-the-rule-holds-and-the-labels-set-the-ceiling)).
+- Level 2 is decided by the worst spot of a trail. Can short peaks, such as a sharp slowdown over 10 to
+  25 m, find it better than a 125 m median?
 - Is 25 m sections with 125 m smoothing the right scale, or should the level be decided per trail
   segment from the start?
 - How should the child-friendly scale map to OSM's `mtb:scale`?

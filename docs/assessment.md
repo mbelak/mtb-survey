@@ -78,9 +78,13 @@ Balanced accuracy, where each level has equal weight. Chance gives 0.33 for thre
 
 The ground truth for 25 Oct is the assessment from 25 Sep, transferred by position. With the road speed as the median
 of the calmest 35 % (used until 2026-10-25), the rows were 0.73, 0.72, 0.63 and 0.51.
+A second labelled handlebar ride on 2026-10-31, half on new trails and on wet trails, gave 0.72 with the
+limits unchanged (0.67 on the new trails), and 0.77 per OSM trail segment. The rider's own labels on the
+same places agreed between the two days on 69 % of the sections, so the rule is about as consistent as
+the labels it is measured against. See `docs/research.md`, section 12.
 With the earlier limits (`steer` 26/36, `roughness` 425), the ride on 30 Sep with the watch on the handlebar gave 0.53 and 0.58.
 
-Limitations: there is only one manually assessed ride, and the test was on the same trails. **The wrist is not
+Limitations: there are only two manually assessed rides, and only the first was dry. **The wrist is not
 repeatable between days.** On 30 Sep the wrist gave 1.6 times the handlebar's shake and 2.2 times its steering on the
 same stretches; on 25 Oct it gave 1.05 and 1.6 times, and the steering grew from 1.2 to 2.2 times over six laps of the
 same loop while the watch's values at standstill stayed the same. The wrist trail limit of 59 °/s comes from a single
