@@ -17,7 +17,7 @@ A ride without :dry or :wet counts as dry. Output in --out (default: the first r
   <name>_merged_trails.geojson one feature per trail segment with the combined level and the passes
 The OSM trail network is fetched from Overpass the first time and cached in --out.
 """
-import json, os, sys
+import json, os, re, sys
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -258,6 +258,15 @@ document.querySelectorAll('#segs tr[data-id]').forEach(tr => {
 """
 
 
+def render(title, merged, summary):
+    """The map page. All placeholders are replaced in one pass, so text from OSM or a file name can never
+    be taken for a placeholder, and the data is escaped for the <script> element (fitmap.js_json)."""
+    esc = lambda t: t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    vals = {'TITLE': esc(title), 'LEAFLET': fitmap.LEAFLET_CDN, 'SEGS': fitmap.js_json(merged),
+            'RIDES': fitmap.js_json(summary), 'LEVELS': fitmap.js_json(LEVELS)}
+    return re.sub(r'__(TITLE|LEAFLET|SEGS|RIDES|LEVELS)__', lambda m: vals[m.group(1)], HTML)
+
+
 def ride_summary(r):
     a = r['auto'] or {}
     mm = a.get('mount_m', {})
@@ -288,10 +297,7 @@ def main():
     gj = os.path.join(out, name + '_merged_trails.geojson')
     with open(gj, 'w') as f:
         json.dump(to_geojson(merged), f, indent=1)
-    page = (HTML.replace('__TITLE__', name + ' and %d more' % (len(rides) - 1) if len(rides) > 1 else name)
-                .replace('__LEAFLET__', fitmap.LEAFLET_CDN)
-                .replace('__SEGS__', json.dumps(merged, separators=(',', ':')))
-                .replace('__RIDES__', json.dumps(summary)).replace('__LEVELS__', json.dumps(LEVELS)))
+    page = render(name + ' and %d more' % (len(rides) - 1) if len(rides) > 1 else name, merged, summary)
     html = os.path.join(out, name + '_merged.html')
     with open(html, 'w') as f:
         f.write(page)
