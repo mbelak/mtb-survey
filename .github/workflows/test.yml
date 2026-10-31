@@ -6,8 +6,10 @@ on:
 
 jobs:
   tools:
-    runs-on: ubuntu-latest
+    # 24.04: Python 3.9, the oldest version the tools support, is not available on newer images
+    runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         python: ["3.9", "3.13"]
     steps:
