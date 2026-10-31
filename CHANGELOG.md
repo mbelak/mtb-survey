@@ -8,6 +8,9 @@ Analysis tools:
 - New assessment: trail is decided by the steering, hard trail by the steering and the speed relative to
   the day's road speed. The limits are recalibrated, see [docs/assessment.md](docs/assessment.md).
 - `roughness` no longer affects the level.
+- The day's road speed is the 65th percentile of the grade-adjusted speed on the calmest half of the
+  ride, instead of the median of the calmest 35 %. On a trail-heavy ride the old reference was pulled
+  down by slow trail and almost nothing was called hard. See `docs/research.md`, section 11.
 - `tools/fitdump.py` reads `device_info`, so connected heart rate straps are visible.
 - Unit tests in `tools/test_trailanalysis.py`.
 

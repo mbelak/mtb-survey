@@ -55,8 +55,11 @@ ride on 2026-09-30, where the same loop was ridden once with the watch on the wr
 | Both | maximum grade of at least 14 % gives 2 | |
 
 `v_rel` is the speed divided by the day's road speed, with the grade evened out (speed ~ e^(−0.036 · grade %)).
-The day's road speed is the median of the grade-adjusted speed on the 35 % calmest sections, that is
+The day's road speed is the 65th percentile of the grade-adjusted speed on the calmest half of the sections, that is
 the ones with the least steering, computed within each mode. If the ride has too little calm distance, 15 km/h is used.
+A high percentile is used rather than the median because the calm half also contains slow trail on trail-heavy rides:
+on a ride with 76 % trail the median of the calmest 35 % gave 12.4 km/h where the roads held 16.2, and almost nothing
+was called hard.
 You slow down on hard trails, and the speed relative to the day's road speed copes with the pace varying between days.
 Absolute speed does not: a calm ride got 52 % hard with a fixed limit of 10.9 km/h, against 13 % with the relative limit.
 
@@ -68,15 +71,21 @@ Balanced accuracy, where each level has equal weight. Chance gives 0.33 for thre
 
 | Ride | Three levels | 1 vs 2 | Road vs trail |
 |---|---|---|---|
-| 25 Sep, handlebar (calibration) | 0.73 | 0.74 | 0.87 |
-| 30 Sep, handlebar (another day) | 0.71 | 0.72 | 0.83 |
-| 30 Sep, wrist | 0.64 | 0.64 | 0.82 |
+| 25 Sep, handlebar (calibration) | 0.73 | 0.73 | 0.87 |
+| 30 Sep, handlebar (another day) | 0.75 | 0.78 | 0.83 |
+| 30 Sep, wrist | 0.64 | 0.65 | 0.82 |
+| 25 Oct, wrist, the same loop six times | 0.55 | 0.62 | 0.69 |
 
+The ground truth for 25 Oct is the assessment from 25 Sep, transferred by position. With the road speed as the median
+of the calmest 35 % (used until 2026-10-25), the rows were 0.73, 0.72, 0.63 and 0.51.
 With the earlier limits (`steer` 26/36, `roughness` 425), the ride on 30 Sep with the watch on the handlebar gave 0.53 and 0.58.
 
-Limitations: there is only one manually assessed ride, and the test was on the same trails. The wrist trail limit
-comes from the same ride it is tested on. The ride on 2026-09-29, with easy trails and the watch on the wrist,
-got 100 % easy. The wrist values were much lower that day, so the limit does not hold every day.
+Limitations: there is only one manually assessed ride, and the test was on the same trails. **The wrist is not
+repeatable between days.** On 30 Sep the wrist gave 1.6 times the handlebar's shake and 2.2 times its steering on the
+same stretches; on 25 Oct it gave 1.05 and 1.6 times, and the steering grew from 1.2 to 2.2 times over six laps of the
+same loop while the watch's values at standstill stayed the same. The wrist trail limit of 59 °/s comes from a single
+ride and does not hold on other days: the ride on 2026-09-29, with easy trails, got 100 % easy, and on 25 Oct the
+gravel roads alone averaged 43 °/s. On the wrist, only the speed is worth trusting.
 
 ## What was tested and rejected
 

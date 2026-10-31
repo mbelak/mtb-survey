@@ -44,6 +44,11 @@ assert 16 <= ta.road_speed(secs) <= 17, ta.road_speed(secs)
 # Uphill is adjusted: 12 km/h at 5 % corresponds to about 14 km/h on flat ground
 up = [sec(10, 12, grade=5) for _ in range(12)] + [sec(40, 8) for _ in range(18)]
 assert 13.5 < ta.road_speed(up) < 15, ta.road_speed(up)
+# A trail-heavy ride: the calmest sections include slow trail, which must not drag the road speed down
+# (ride 2026-10-25: 76 % trail, the old reference gave 12.4 km/h where the roads held 16.2)
+heavy = ([sec(10, v) for v in (15, 15, 16, 16, 17, 17, 15, 16)] +
+         [sec(30, v) for v in (7, 8, 9, 7, 8, 9, 7, 9)] + [sec(50, 8) for _ in range(14)])
+assert 15 <= ta.road_speed(heavy) <= 17, ta.road_speed(heavy)
 # Too few sections: the fallback value is used
 assert ta.road_speed([sec(10, 30)]) == ta.V_ROAD_DEFAULT
 
